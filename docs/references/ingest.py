@@ -47,6 +47,12 @@ PAGE_SIZE = int(os.getenv("INGESTION_PAGE_SIZE", "50"))
 LOOKBACK_HOURS = int(os.getenv("INGESTION_LOOKBACK_HOURS", "6"))
 MAX_PAGES = int(os.getenv("INGESTION_MAX_PAGES", "100"))
 
+# Scope: the CR inboxes this project actually covers. Intercom exposes ~70 teams;
+# syncing all of them pulls inboxes outside the QC remit and makes thousands of
+# extra API calls. Set CR_INBOX_IDS in .env (comma-separated team IDs) to the 12
+# Case Resolution inboxes once confirmed. Empty = no scoping (syncs everything).
+CR_INBOX_IDS = [x.strip() for x in os.getenv("CR_INBOX_IDS", "").split(",") if x.strip()]
+
 
 # ============================================================
 # Supabase Writer
@@ -163,6 +169,7 @@ class SupabaseWriter:
             "intercom_updated_at": conv.updated_at.isoformat() if conv.updated_at else None,
             "admin_reply_count": conv.admin_reply_count,
             "total_parts_count": conv.total_parts_count,
+            "intercom_url": conv.intercom_url,
             "last_synced_at": datetime.now(timezone.utc).isoformat(),
         }
         
@@ -286,6 +293,7 @@ async def sync_inbox(
     inbox_name: str,
     since: Optional[datetime] = None,
     dry_run: bool = False,
+    bot_admin_ids: Optional[set] = None,
 ) -> int:
     """
     Sync all conversations from a single inbox.
@@ -319,6 +327,7 @@ async def sync_inbox(
     # Process each conversation
     synced = 0
     failed = 0
+    skipped = 0   # no human-agent reply → nothing to QC
     latest_updated = since
     
     for i, raw_conv in enumerate(raw_conversations):
@@ -329,12 +338,18 @@ async def sync_inbox(
             full_conv_data = await intercom.get_conversation(conv_id)
             
             # Parse into our model
-            parsed = IntercomClient.parse_conversation(full_conv_data)
-            
+            parsed = IntercomClient.parse_conversation(full_conv_data, bot_admin_ids=bot_admin_ids)
+
             # Track latest update time
             if parsed.updated_at and (latest_updated is None or parsed.updated_at > latest_updated):
                 latest_updated = parsed.updated_at
-            
+
+            # FILTER: only QC conversations that contain a human-agent reply.
+            # Bot-only / ticket-workflow threads have nothing to score — skip them.
+            if parsed.admin_reply_count == 0:
+                skipped += 1
+                continue
+
             # Write to Supabase
             result_uuid = await writer.upsert_conversation(parsed)
             
@@ -356,7 +371,10 @@ async def sync_inbox(
     if latest_updated:
         writer.update_sync_state(inbox_intercom_id, latest_updated, synced)
     
-    console.print(f"  [green]✓[/green] Inbox complete: {synced} synced, {failed} failed")
+    console.print(
+        f"  [green]✓[/green] Inbox complete: {synced} synced, "
+        f"{skipped} skipped (no human reply), {failed} failed"
+    )
     return synced
 
 
@@ -392,15 +410,25 @@ async def run_ingestion(
         # Step 1: Sync admins
         console.print("[bold]Step 1: Syncing agents...[/bold]")
         admins_raw = await intercom.list_admins()
-        await writer.upsert_agents([
-            {"id": a.id, "name": a.name, "email": a.email, "avatar_url": a.avatar_url}
-            for a in admins_raw
-        ])
-        
+        # Bot/AI accounts (Fin AI, Facebook Bot) use operator+<app>@intercom.io
+        # emails. Exclude them so only human-agent replies are counted/QC'd.
+        bot_admin_ids = {a.id for a in admins_raw if a.email and "@intercom.io" in a.email}
+        console.print(f"  Excluding {len(bot_admin_ids)} bot/AI account(s) from agent replies")
+        if dry_run:
+            console.print(f"  [yellow]DRY RUN — skipping write of {len(admins_raw)} agents[/yellow]")
+        else:
+            await writer.upsert_agents([
+                {"id": a.id, "name": a.name, "email": a.email, "avatar_url": a.avatar_url}
+                for a in admins_raw
+            ])
+
         # Step 2: Sync inboxes/teams
         console.print("[bold]Step 2: Syncing inboxes...[/bold]")
         teams_raw = await intercom.list_teams()
-        await writer.upsert_inboxes(teams_raw)
+        if dry_run:
+            console.print(f"  [yellow]DRY RUN — skipping write of {len(teams_raw)} inboxes[/yellow]")
+        else:
+            await writer.upsert_inboxes(teams_raw)
         
         # Step 3: Sync conversations per inbox
         console.print("[bold]Step 3: Syncing conversations...[/bold]")
@@ -415,9 +443,21 @@ async def run_ingestion(
             else:
                 console.print(f"[red]ERROR: Inbox {target_inbox_id} not found[/red]")
                 sys.exit(1)
+        elif CR_INBOX_IDS:
+            # Scope to the configured CR inboxes only.
+            cr_set = set(CR_INBOX_IDS)
+            inboxes_to_sync = [t for t in teams_raw if str(t["id"]) in cr_set]
+            missing = cr_set - {str(t["id"]) for t in teams_raw}
+            console.print(f"  Scoped to {len(inboxes_to_sync)} CR inbox(es) via CR_INBOX_IDS")
+            if missing:
+                console.print(f"  [yellow]⚠ CR_INBOX_IDS not found in Intercom: {', '.join(sorted(missing))}[/yellow]")
         else:
             inboxes_to_sync = teams_raw
-        
+            console.print(
+                f"  [yellow]⚠ CR_INBOX_IDS not set — syncing ALL {len(teams_raw)} inboxes. "
+                f"Set CR_INBOX_IDS in .env to scope to the 13 CR inboxes.[/yellow]"
+            )
+
         # Determine sync start time
         since = None
         if not full_sync:
@@ -435,6 +475,7 @@ async def run_ingestion(
                 inbox_name=inbox_name,
                 since=since if full_sync else None,  # For incremental, use per-inbox sync state
                 dry_run=dry_run,
+                bot_admin_ids=bot_admin_ids,
             )
             total_synced += count
         

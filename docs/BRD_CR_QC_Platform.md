@@ -38,7 +38,7 @@
 
 The CR QC Platform is an internal quality control system for FundedNext's Case Resolution (CR) team. The platform automates approximately 80% of QC reviews using AI-powered scoring against a structured 26-category rubric, while routing the remaining 20% (low-satisfaction conversations) to human reviewers for manual evaluation.
 
-The system ingests customer support conversations from 12 Intercom inboxes, extracts agent (admin) replies, scores them against the QC rubric using LLM-as-judge pattern via Groq and OpenRouter APIs, calculates deduction-based QC scores, and presents results through a web dashboard with agent performance summaries, conversation drilldowns, and a manual review queue.
+The system ingests customer support conversations from 12 Intercom inboxes, extracts agent (admin) replies, scores them against the QC rubric using LLM-as-judge pattern via the Google Gemini API, calculates deduction-based QC scores, and presents results through a web dashboard with agent performance summaries, conversation drilldowns, and a manual review queue.
 
 This is a standalone application, separate from the existing NextVentures Ops Dashboard.
 
@@ -92,7 +92,7 @@ Build an AI-powered QC platform that:
 | ID | Objective | Measure |
 |----|-----------|---------|
 | OBJ-6 | Enable agent coaching | Per-agent error pattern reports available for team leads |
-| OBJ-7 | Zero ongoing AI costs | All AI scoring uses free-tier APIs (Groq + OpenRouter) |
+| OBJ-7 | Predictable, low AI costs | AI scoring stays under ~$150/month at projected volume (~$117 expected: 25 normal days + 5 spike days) |
 | OBJ-8 | Real-time visibility | Dashboard reflects new conversations within 4 hours of closure |
 
 ---
@@ -169,8 +169,9 @@ All users must authenticate via Google OAuth restricted to the @nextventures.io 
 | **Manual Review** | The process where a human reviewer examines a conversation, verifies or overrides AI-detected errors, and confirms the final QC score. |
 | **Deduction** | Points subtracted from the starting score of 100 for each error detected. |
 | **LLM-as-Judge** | The pattern of using a Large Language Model to evaluate text quality against a rubric, rather than using traditional ML classifiers. |
-| **Groq** | Primary AI inference provider. Hosts Llama 3.3 70B model with a free tier. |
-| **OpenRouter** | Backup AI inference provider. Aggregates multiple free models (Gemma, Nemotron, GPT-OSS). |
+| **Gemini (gemini-3.6-flash)** | The AI model used for scoring, from Google. Chosen for structured-output support and low cost at volume. (Kimi may be added later as a fallback.) |
+| **Batch Mode** | Gemini's asynchronous request API. ~50% cheaper than standard; results typically return well inside the scoring window. Used by the scoring worker, which is not latency-sensitive. |
+| **Structured Output** | A model feature (`response_schema`) that constrains the response to a JSON schema, so a malformed verdict fails loudly rather than writing a bad row. |
 | **FundedNext** | The proprietary trading firm whose customer support is being QC'd. The correct branding is always "FundedNext" (capital F, capital N, one word). |
 
 ---
@@ -185,7 +186,7 @@ The system consists of three layers:
 A Python worker that runs on a scheduled cron (every 4 hours). It connects to the Intercom REST API, fetches conversations from all 12 CR inboxes, extracts conversation parts (separating admin, bot, and user messages), parses CX Score and metadata, and writes everything to Supabase PostgreSQL.
 
 **Layer 2 — AI Scoring Engine (Python)**
-A Python worker that picks up unscored conversations from the database, constructs a scoring prompt containing the conversation thread and the full 26-category QC rubric, sends it to Groq (primary) or OpenRouter (fallback), parses the structured JSON response to extract detected errors and reasoning, calculates the final QC score (100 minus sum of deductions), and updates the conversation with its score and review status routing.
+A Python worker that picks up unscored conversations from the database, constructs a scoring prompt containing the conversation thread and the full 26-category QC rubric, submits it to Gemini (gemini-3.6-flash) via Batch Mode with a structured-output schema, parses the returned JSON to extract detected errors and reasoning, calculates the final QC score (100 minus sum of deductions), and updates the conversation with its score and review status routing.
 
 **Layer 3 — Web Dashboard (Next.js)**
 A Next.js web application deployed on Vercel. Provides authenticated access to the agent summary table, conversation drilldown, agent profile pages, manual review queue, and filtering/export features.
@@ -200,11 +201,11 @@ A Next.js web application deployed on Vercel. Provides authenticated access to t
                                     │
                                     ▼
                           [Python Scoring Worker]
-                           │                  │
-                     [Groq API]        [OpenRouter API]
-                     (Primary)          (Fallback)
-                           │                  │
-                           ▼                  ▼
+                                    │
+                        [Gemini Batch Mode]
+                         (gemini-3.6-flash)
+                                    │
+                                    ▼
                     [Structured QC Scores]
                                     │
                                     ▼
@@ -226,8 +227,8 @@ A Next.js web application deployed on Vercel. Provides authenticated access to t
 | Database | Supabase (PostgreSQL) | Free tier, built-in auth, real-time, REST API |
 | Backend Workers | Python 3.11+ | Fast iteration, great HTTP libraries, ML ecosystem |
 | HTTP Client | httpx (async) | Async support for concurrent API calls |
-| AI Primary | Groq (Llama 3.3 70B Instruct) | Free tier ~6,000 req/day, fast inference |
-| AI Fallback | OpenRouter (Gemma 4 31B, Nemotron 3 120B, GPT-OSS 120B) | Free tier 200 req/day per model, model rotation |
+| AI Scoring | Google Gemini (`gemini-3.6-flash`) | Structured output guarantees a parseable verdict; large context; low cost at volume |
+| AI Delivery | Gemini Batch Mode | ~50% cost reduction; scoring is not latency-sensitive |
 | Frontend | Next.js 16 + Turbopack | Team's existing expertise, fast development |
 | UI Components | shadcn/ui | Consistent, accessible, customizable components |
 | Charts | Recharts | Already used in ops-dashboard, React-native charts |
@@ -347,22 +348,35 @@ After scoring, the system MUST set the conversation's `review_status` based on C
 
 #### FR-2.5: AI Provider Strategy
 
-**Primary Provider: Groq**
-- Model: `llama-3.3-70b-versatile`
-- Free tier: approximately 6,000 requests/day, 30 requests/minute
-- Used for all scoring attempts first
+**Provider: Google Gemini — `gemini-3.6-flash`**, via Gemini Batch Mode.
+(Kimi may be added later as a fallback after evaluating Gemini's accuracy — the
+`scoring_provider` enum already allows `gemini`, `kimi`, `manual`.)
 
-**Fallback Provider: OpenRouter**
-- Models rotated in order:
-  1. `google/gemma-4-31b-it:free` (quality rank #1 on OpenRouter)
-  2. `nvidia/nemotron-3-super-120b-a12b:free`
-  3. `openai/gpt-oss-120b:free`
-- Free tier: 200 requests/day per model = ~600/day across 3 models
-- Used when Groq returns a rate limit error (HTTP 429) or is unavailable
+- Structured output (`response_schema` + `response_mime_type: application/json`)
+  constrains the response to the deduction schema, so a malformed verdict fails
+  loudly instead of writing a bad row into `qc_assessments`
+- Large context — a support conversation uses a fraction of it
+- Batch Mode: ~50% cost reduction; batches complete well inside the scoring
+  window (scoring is not latency-sensitive)
+- Capacity is bounded by API rate limits, not a tokens-per-day ceiling
 
-**Combined daily capacity: ~6,600 requests.** For 500 conversations/day with up to 2 retries each, this is sufficient.
+**Volume (measured):** ~475 conversations/day across the 13 CR inboxes; ~44%
+have a human-agent reply → **~208 QC-able/day (~6,200 scoring calls/month)**.
+The human-reply filter roughly halves scoring volume vs. raw conversation counts.
 
-The system MUST log which provider and model scored each conversation for auditability.
+**Cost:** modest — low tens of dollars/month on Flash-class pricing at ~3K
+input + ~500 output tokens per call. Re-measure tokens per call with the final
+rubric prompt before quoting a firm figure.
+
+**Why not free-tier LLM providers.** Free tiers are capped on *tokens* per day,
+not requests — a distinction that makes them unusable at this volume. A typical
+free tier allows 100K–200K tokens/day, which at ~3K tokens per scoring call is
+roughly 35–65 conversations/day — short of normal volume (500/day) and far
+short of a 6,000/day spike. This is why OBJ-7 measures cost rather than
+requiring zero cost.
+
+The system MUST log which provider and model scored each conversation for
+auditability.
 
 #### FR-2.6: Batch Processing
 
@@ -807,8 +821,8 @@ Pre-seeded with 26 rows matching the QC scorecard.
 | conversations_scored | INTEGER | DEFAULT 0 | How many conversations were successfully scored |
 | conversations_failed | INTEGER | DEFAULT 0 | How many failed to score |
 | avg_score | NUMERIC(5,2) | | Average QC score for this batch |
-| provider | ENUM | | groq, openrouter, or manual |
-| model_name | TEXT | | Specific model used (e.g., "llama-3.3-70b-versatile") |
+| provider | ENUM | | gemini, kimi, or manual |
+| model_name | TEXT | | Specific model used (e.g., "gemini-3.6-flash") |
 | error_log | JSONB | DEFAULT '[]' | Array of error records for debugging |
 | created_at | TIMESTAMPTZ | DEFAULT NOW() | Record creation time |
 
@@ -820,7 +834,7 @@ Pre-seeded with 26 rows matching the QC scorecard.
 | conversation_id | UUID | FK → conversations(id), CASCADE DELETE | Which conversation this assessment is for |
 | total_deductions | NUMERIC(5,2) | DEFAULT 0 | Sum of all error deductions |
 | final_score | NUMERIC(5,2) | NOT NULL | max(0, 100 − total_deductions) |
-| provider | ENUM | NOT NULL | groq, openrouter, or manual |
+| provider | ENUM | NOT NULL | gemini, kimi, or manual |
 | model_name | TEXT | | Specific model that scored this |
 | ai_reasoning | TEXT | | Overall AI explanation of the conversation quality |
 | prompt_tokens | INTEGER | | Tokens used in the prompt |
@@ -947,37 +961,57 @@ Each conversation has a `conversation_parts.conversation_parts` array. Each part
 - Primary: `conversation_rating.rating` (integer 1-5)
 - Fallback: `custom_attributes.cx_score`
 
-### 11.2 Groq API
+### 11.2 Google Gemini API
 
-**Base URL:** `https://api.groq.com/openai/v1/chat/completions`  
-**Authentication:** Bearer token  
-**Model:** `llama-3.3-70b-versatile`  
-**Max Tokens:** 4096 (for response)  
-**Temperature:** 0.1 (low randomness for consistent scoring)  
+**SDK:** `google-genai` (Python) — `from google import genai`.
+**Authentication:** `GEMINI_API_KEY` (see §14 Environment Variables)
+**Model:** `gemini-3.6-flash`
+**Max Output Tokens:** 4096 (for response)
+**Temperature:** 0.1 (low randomness for consistent scoring)
 
-**Request format:** OpenAI-compatible chat completions API.
+> **Note on temperature:** low temperature reduces variance but has never
+> guaranteed identical outputs across runs. Do not treat `0.1` as a determinism
+> guarantee for scoring reproducibility.
 
-**Free Tier Limits:**
-- ~6,000 requests/day
-- 30 requests/minute
-- 6,000 tokens/minute (for the model)
+**Structured output.** Every scoring call MUST pass the deduction schema via
+`response_schema` so the response is constrained to valid JSON rather than
+parsed hopefully:
 
-### 11.3 OpenRouter API
+```python
+from google import genai
+from google.genai import types
 
-**Base URL:** `https://openrouter.ai/api/v1/chat/completions`  
-**Authentication:** Bearer token  
-**Format:** OpenAI-compatible  
+client = genai.Client(api_key=GEMINI_API_KEY)
+response = client.models.generate_content(
+    model="gemini-3.6-flash",
+    contents=scoring_prompt,
+    config=types.GenerateContentConfig(
+        temperature=0.1,
+        max_output_tokens=4096,
+        response_mime_type="application/json",
+        response_schema=DEDUCTION_SCHEMA,   # a pydantic model or JSON schema
+    ),
+)
+# response.parsed is the validated object when response_schema is a type
+```
 
-**Model Rotation (in order of preference):**
-1. `google/gemma-4-31b-it:free` — Quality rank #1, 262K context
-2. `nvidia/nemotron-3-super-120b-a12b:free` — 1M context, tool support
-3. `openai/gpt-oss-120b:free` — 131K context, structured output support
+### 11.3 Gemini Batch Mode
 
-**Free Tier Limits per Model:**
-- 20 requests/minute
-- 200 requests/day
+**API:** `client.batches` (google-genai)
+**Discount:** ~50% vs. standard requests
+**Latency:** asynchronous; target turnaround within 24h (well inside the
+scoring window)
 
-The system rotates to the next model when the current one returns a 429 rate limit error.
+The scoring worker submits a batch job, polls its state until it completes,
+then reads the per-request results.
+
+> ⚠️ **Map results back by key.** Attach the conversation ID to each request
+> (as the request key/metadata) and match results by that key — never by
+> position in the result set.
+
+Handle per-request failures individually: a malformed/invalid request is a
+permanent failure (fix and skip); transient errors are safe to retry in the
+next batch.
 
 ---
 
@@ -1081,13 +1115,15 @@ TRIGGER: After ingestion completes (or separate cron)
         │       │   - Include conversation thread
         │       │   - Request JSON output
         │       │
-        │       ├── TRY: Send to Groq API
-        │       │   ON 429/error: Fallback to OpenRouter
-        │       │   ON OpenRouter 429: Try next model
+        │       ├── Add to batch (custom_id = conversation_id)
+        │       │   Schema enforced via response_schema
         │       │
-        │       ├── Parse JSON response
-        │       │   ON parse failure: Retry up to 3 times
-        │       │   ON all retries failed: Log error, skip
+        │       ├── Submit batch → poll until status == "ended"
+        │       │   SDK retries 429/5xx with exponential backoff
+        │       │
+        │       ├── Collect results, keyed by custom_id (NOT order)
+        │       │   ON errored/invalid_request: log, skip (permanent)
+        │       │   ON errored/other: retry in next batch
         │       │
         │       ├── Create qc_assessment record
         │       │
@@ -1229,10 +1265,9 @@ There is no staging environment for this project (not needed for the MVP timelin
 | SUPABASE_URL | Workers + Frontend | Supabase project URL |
 | SUPABASE_SERVICE_KEY | Workers | Service role key (full access, bypasses RLS) |
 | SUPABASE_ANON_KEY | Frontend | Anonymous key (respects RLS) |
-| GROQ_API_KEY | Workers | Groq API authentication |
-| GROQ_MODEL | Workers | Model to use (default: llama-3.3-70b-versatile) |
-| OPENROUTER_API_KEY | Workers | OpenRouter API authentication |
-| OPENROUTER_MODELS | Workers | Comma-separated list of fallback models |
+| GEMINI_API_KEY | Workers | Google Gemini API authentication (Google AI Studio). |
+| GEMINI_MODEL | Workers | Model to use (default: gemini-3.6-flash) |
+| GEMINI_USE_BATCH | Workers | Use Gemini Batch Mode for scheduled scoring (default: true) |
 | NEXTAUTH_SECRET | Frontend | NextAuth encryption secret |
 | GOOGLE_CLIENT_ID | Frontend | Google OAuth client ID |
 | GOOGLE_CLIENT_SECRET | Frontend | Google OAuth client secret |
@@ -1252,7 +1287,7 @@ There is no staging environment for this project (not needed for the MVP timelin
 
 1. Intercom API access is available with sufficient permissions to read conversations, admins, and teams across all 12 CR inboxes
 2. CX Score is stored in `conversation_rating.rating` in Intercom (needs confirmation)
-3. Groq and OpenRouter free tiers remain available through August 2026
+3. AI scoring cost of ~$117/month at projected volume is acceptable to the business (see OBJ-7). This assumption replaces an earlier "zero AI cost via free tiers" assumption, which analysis showed was unachievable: free tiers fall 8× short at normal volume and 90× short at spike volume.
 4. The 26 QC categories in the scorecard are stable and will not change significantly during development
 5. ~500 conversations/day is the normal volume; event spikes of 4,000-6,000 are temporary
 6. All QC reviewers have @nextventures.io Google accounts
@@ -1264,8 +1299,7 @@ There is no staging environment for this project (not needed for the MVP timelin
 | Dependency | Risk | Mitigation |
 |-----------|------|------------|
 | Intercom API uptime | Medium | Retry logic with exponential backoff; sync state allows resume |
-| Groq free tier availability | Medium | OpenRouter fallback with 3 model rotation |
-| OpenRouter free tier availability | Low | Models rotate; new free models added regularly |
+| Gemini API availability | Low | SDK retries 429/5xx with backoff; scoring is asynchronous (batch), so a delay degrades freshness rather than losing data; Kimi can be added as a fallback provider |
 | Supabase free tier limits | Low | Current volume well within free tier (500MB DB, 50K rows) |
 | Vercel Hobby plan limits | Low | Known constraint: 60s function limit, 1 cron/day (workers run externally) |
 
@@ -1276,7 +1310,8 @@ There is no staging environment for this project (not needed for the MVP timelin
 | Risk | Probability | Impact | Mitigation |
 |------|------------|--------|------------|
 | AI scoring accuracy below 80% | Medium | High | Iterative prompt tuning using manual QC comparison; start with most impactful categories |
-| Free AI API rate limits too restrictive | Medium | Medium | Multi-provider strategy (Groq + 3 OpenRouter models); batch processing; off-peak scheduling |
+| AI cost exceeds estimate at spike volume | Medium | Low | Cost scales linearly and is bounded: even sustained 6,000/day is ~$16.50/day. Re-measure tokens/call with `count_tokens` once the rubric prompt is final — the estimate assumes ~3K input tokens |
+| Account rate limits too restrictive at spike volume | Low | Medium | Batch Mode absorbs bursts asynchronously; raise tier if a 6,000/day spike sustains |
 | CX Score field path differs from assumption | Low | Medium | verify_setup.py checks this; fallback to custom_attributes |
 | Intercom API changes or deprecations | Low | High | Pin to API version 2.11; monitor deprecation notices |
 | Scoring prompt too large for context window | Low | Medium | Truncate very long conversations; use models with 128K+ context |
@@ -1308,7 +1343,8 @@ There is no staging environment for this project (not needed for the MVP timelin
 - [ ] Conversations scored against all 26 error categories
 - [ ] QC Scores correctly calculated (100 minus deductions)
 - [ ] CX 1-2 routed to manual review; CX 3-5 auto-approved
-- [ ] Groq → OpenRouter fallback works when Groq is rate-limited
+- [ ] Batch results are keyed by `custom_id` and map to the correct conversation when returned out of order
+- [ ] A malformed/unparseable verdict is rejected by the schema rather than written to `qc_assessments`
 - [ ] AI scoring accuracy ≥ 80% agreement with manual QC (±10 points)
 - [ ] Scoring runs tracked in scoring_runs table
 

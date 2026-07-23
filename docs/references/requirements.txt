@@ -1,5 +1,6 @@
 # CR QC Platform — Python Dependencies
 httpx>=0.27.0          # Async HTTP client for Intercom API
+google-genai>=1.0.0    # Gemini API — AI scoring (gemini-3.6-flash, Batch Mode)
 supabase>=2.0.0        # Supabase Python client
 python-dotenv>=1.0.0   # Environment variable loading
 rich>=13.0.0           # Pretty console logging

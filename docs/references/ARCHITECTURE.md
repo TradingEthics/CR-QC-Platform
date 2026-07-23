@@ -2,7 +2,7 @@
 
 **Project:** Case Resolution Quality Control Platform
 **Deadline:** August 15, 2026
-**Stack:** Python (ingestion + scoring) · Next.js (frontend) · Supabase (database) · Vercel (hosting) · OpenRouter/Groq (AI scoring)
+**Stack:** Python (ingestion + scoring) · Next.js (frontend) · Supabase (database) · Vercel (hosting) · Google Gemini (gemini-3.6-flash) AI scoring
 
 ---
 
@@ -20,8 +20,7 @@ Intercom REST API (12 inboxes)
         │                              │
         ▼                              │
 [Python Scoring Worker]                │
-   │  Groq (primary)                   │
-   │  OpenRouter (fallback)            │
+   │  Gemini gemini-3.6-flash (Batch)  │
    │                                   │
    ▼                                   ▼
 Supabase (scores + flags)  ◀──── Next.js Dashboard
@@ -55,18 +54,30 @@ Each conversation starts at **100**. Errors detected by the AI deduct points:
 
 ### AI Scoring Strategy
 
-**Primary: Groq** (Llama 3.3 70B Instruct)
-- Free tier: ~6,000 requests/day, 30 RPM
-- Fast inference (~200 tok/s)
-- Good at structured rubric-following
+**Google Gemini — `gemini-3.6-flash`**, via Gemini Batch Mode. (Kimi may be
+added later as a fallback after evaluating Gemini's scoring accuracy.)
 
-**Fallback: OpenRouter** (model rotation)
-- `google/gemma-4-31b-it:free` (quality rank #1)
-- `nvidia/nemotron-3-super-120b-a12b:free`
-- `openai/gpt-oss-120b:free`
-- 200 requests/day per model = ~600/day across 3 models
+- Structured output (`response_schema` + `response_mime_type: application/json`)
+  constrains the response to the deduction schema, so a malformed verdict fails
+  loudly instead of writing a bad row into `qc_assessments`
+- Large context window — a support conversation uses a fraction of it
+- Batch Mode is ~50% cheaper; batches typically finish well inside the scoring
+  window (scoring is not latency-sensitive)
 
-**Combined capacity:** ~6,600 requests/day — enough for 500 conversations + retries.
+**Capacity:** sized by API rate limits, not a free-tier tokens-per-day ceiling.
+
+**Volume (measured):** ~475 conversations/day across the 13 CR inboxes, of which
+~44% contain a human-agent reply → **~208 QC-able/day (~6,200/month)**. The
+human-reply filter roughly halves scoring volume vs. raw conversation counts.
+
+**Cost:** modest at this volume — low tens of dollars/month on Flash-class
+pricing. Re-measure tokens per call with the final rubric prompt before quoting
+a firm figure; the estimate assumes ~3K input + ~500 output tokens per call.
+
+**Why not free-tier LLM providers:** free tiers are capped on *tokens* per day,
+not requests. A typical free tier allows 100K–200K TPD, which at ~3K tokens per
+call is roughly 35–65 conversations/day — short of normal volume (500/day) and
+far short of a 6,000/day spike. No fallback chain closes that gap.
 
 ## 3. Database Schema (Supabase/PostgreSQL)
 
@@ -137,7 +148,7 @@ Current assumption: `conversation_rating.rating` (1–5 scale)
 
 - **Scoring Worker:** Runs after ingestion or on separate cron
   - Picks up unscored conversations
-  - Calls Groq/OpenRouter for QC assessment
+  - Submits a Gemini (gemini-3.6-flash) batch for QC assessment, polls to completion
   - Writes scores + flags review status
 
 ### Next.js Frontend (Vercel Hobby)
@@ -163,13 +174,13 @@ Current assumption: `conversation_rating.rating` (1–5 scale)
 - [x] Python ingestion script (Intercom → Supabase)
 - [ ] Confirm CX score field path from Intercom
 - [ ] Get Intercom API token
-- [ ] Get Groq + OpenRouter API keys
+- [x] Get Gemini API key (Google AI Studio)
 - [ ] Test ingestion with real data
 
 ### Week 2 (Jul 15–21): AI Scoring Engine
 - [ ] Build scoring prompt from QC rubric
-- [ ] Groq API integration with structured JSON output
-- [ ] OpenRouter fallback with model rotation
+- [ ] google-genai integration with structured output (`response_schema`)
+- [ ] Gemini Batch Mode submit/poll/collect loop
 - [ ] CX score routing logic (1–2 → manual, 3–5 → auto)
 - [ ] Scoring worker with batch processing
 - [ ] Test scoring accuracy against manual QC samples

@@ -60,7 +60,11 @@ async def verify_intercom():
             
             # Test 3: Fetch one conversation to check structure
             console.print("\n  [bold]Fetching a sample conversation to verify structure...[/bold]")
+            # Intercom's Search API rejects an empty query — filter on a recent
+            # updated_at window so the query is valid without hardcoding an inbox.
+            from datetime import datetime, timedelta
             sample_convs = await client.search_conversations(
+                updated_after=datetime.now() - timedelta(days=30),
                 page_size=1,
                 max_pages=1,
             )
@@ -154,23 +158,41 @@ def verify_supabase():
 
 
 def verify_ai_keys():
-    """Check if AI scoring API keys are configured."""
-    console.print("\n[bold]Checking AI scoring API keys...[/bold]")
-    
-    groq_key = os.getenv("GROQ_API_KEY", "")
-    openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
-    
-    if groq_key:
-        console.print(f"  [green]✓[/green] GROQ_API_KEY set ({groq_key[:8]}...)")
-    else:
-        console.print("  [yellow]⚠[/yellow] GROQ_API_KEY not set (needed for Week 2)")
-    
-    if openrouter_key:
-        console.print(f"  [green]✓[/green] OPENROUTER_API_KEY set ({openrouter_key[:8]}...)")
-    else:
-        console.print("  [yellow]⚠[/yellow] OPENROUTER_API_KEY not set (needed for Week 2)")
-    
-    return True  # Not blocking for Week 1
+    """Verify the Gemini API key actually authenticates.
+
+    Does a real, cheap call (list models) rather than just checking the env var
+    is non-empty — that catches a revoked key or a typo now instead of in Week 2.
+    """
+    console.print("\n[bold]Checking Gemini API key...[/bold]")
+
+    api_key = os.getenv("GEMINI_API_KEY", "")
+    model = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
+
+    if not api_key:
+        console.print("  [yellow]⚠[/yellow] GEMINI_API_KEY not set (needed for Week 2 scoring)")
+        return True  # Not blocking for Week 1 — ingestion doesn't call Gemini
+
+    try:
+        from google import genai
+
+        client = genai.Client(api_key=api_key)
+        # Cheap auth check: fetch the target model's metadata.
+        info = client.models.get(model=model)
+        console.print(f"  [green]✓[/green] GEMINI_API_KEY valid ({api_key[:10]}...)")
+        console.print(f"  [green]✓[/green] Model available: {info.name}")
+        in_tok = getattr(info, "input_token_limit", None)
+        out_tok = getattr(info, "output_token_limit", None)
+        if in_tok:
+            console.print(f"    Input token limit: {in_tok:,}")
+        if out_tok:
+            console.print(f"    Output token limit: {out_tok:,}")
+        return True
+    except ImportError:
+        console.print("  [yellow]⚠[/yellow] google-genai not installed — run: pip install google-genai")
+        return True  # Not blocking for Week 1
+    except Exception as e:
+        console.print(f"  [red]✗ Gemini error: {e}[/red]")
+        return False
 
 
 async def main():
@@ -189,7 +211,7 @@ async def main():
     results["supabase"] = verify_supabase()
     
     # 3. AI Keys
-    results["ai_keys"] = verify_ai_keys()
+    results["gemini"] = verify_ai_keys()
     
     # Summary
     console.print("\n" + "=" * 50)

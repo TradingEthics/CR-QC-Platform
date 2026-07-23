@@ -26,8 +26,8 @@ CREATE TYPE error_severity AS ENUM (
 );
 
 CREATE TYPE scoring_provider AS ENUM (
-  'groq',
-  'openrouter',
+  'gemini',
+  'kimi',
   'manual'
 );
 
@@ -83,9 +83,10 @@ CREATE TABLE conversations (
   -- Metadata
   intercom_created_at  TIMESTAMPTZ,          -- When conversation was created in Intercom
   intercom_updated_at  TIMESTAMPTZ,          -- When conversation was last updated in Intercom
-  admin_reply_count    INTEGER DEFAULT 0,    -- Number of admin replies
+  admin_reply_count    INTEGER DEFAULT 0,    -- Human-agent replies only (excludes Fin AI/bots)
   total_parts_count    INTEGER DEFAULT 0,    -- Total conversation parts
-  
+  intercom_url         TEXT,                 -- Clickable link to the conversation for manual review
+
   -- Sync tracking
   last_synced_at  TIMESTAMPTZ DEFAULT NOW(),
   
@@ -161,7 +162,7 @@ CREATE TABLE qc_assessments (
   
   -- AI metadata
   provider        scoring_provider NOT NULL,  -- Which model scored this
-  model_name      TEXT,                       -- e.g., 'llama-3.3-70b-instruct'
+  model_name      TEXT,                       -- e.g., 'gemini-3.6-flash'
   ai_reasoning    TEXT,                       -- Overall AI explanation
   prompt_tokens   INTEGER,
   completion_tokens INTEGER,

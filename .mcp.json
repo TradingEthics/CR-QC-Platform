@@ -14,7 +14,7 @@
     },
     "github": {
       "type": "http",
-      "url": "https://github.com/anthropics/github-mcp-server"
+      "url": "https://api.githubcopilot.com/mcp/"
     }
   }
 }

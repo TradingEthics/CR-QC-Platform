@@ -11,6 +11,7 @@ Usage:
 """
 
 import asyncio
+import os
 import time
 from datetime import datetime, timezone
 from typing import Optional
@@ -18,6 +19,10 @@ from typing import Optional
 import httpx
 from pydantic import BaseModel
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+
+# Intercom workspace/app ID — used to build clickable conversation links.
+# Derived from the operator bot email (operator+<app_id>@intercom.io).
+INTERCOM_APP_ID = os.getenv("INTERCOM_APP_ID", "")
 
 # ============================================================
 # Data Models
@@ -68,8 +73,11 @@ class IntercomConversation(BaseModel):
     
     # Parts
     parts: list[IntercomConversationPart] = []
-    admin_reply_count: int = 0
+    admin_reply_count: int = 0      # human-agent replies only (excludes Fin AI / bots)
     total_parts_count: int = 0
+
+    # Clickable link to the conversation in the Intercom inbox (for manual review)
+    intercom_url: Optional[str] = None
 
 
 # ============================================================
@@ -282,9 +290,13 @@ class IntercomClient:
     # --------------------------------------------------------
     
     @staticmethod
-    def parse_conversation(raw: dict) -> IntercomConversation:
+    def parse_conversation(raw: dict, bot_admin_ids: Optional[set] = None) -> IntercomConversation:
         """
         Parse a raw Intercom conversation dict into our model.
+
+        bot_admin_ids: author IDs to treat as non-human (Fin AI, Facebook Bot,
+        etc.). Their messages are excluded from admin_reply_count so we only
+        count real human-agent replies for QC.
         
         Handles:
         - Extracting CX score from conversation_rating
@@ -300,6 +312,10 @@ class IntercomClient:
         # --- Basic fields ---
         conv_id = str(raw.get("id", ""))
         title = raw.get("title") or raw.get("source", {}).get("subject")
+
+        # Read app id at call time — the module-level constant can be empty if
+        # this module was imported before load_dotenv() ran (as in ingest.py).
+        app_id = os.getenv("INTERCOM_APP_ID", "") or INTERCOM_APP_ID
         
         # --- Assignee ---
         assignee = raw.get("assignee", {}) or {}
@@ -399,10 +415,14 @@ class IntercomClient:
             ))
             sequence += 1
         
-        # Count admin replies (only parts with actual content)
+        # Count HUMAN agent replies (only parts with actual content).
+        # Excludes Fin AI / bots (bot_admin_ids) — Intercom labels the AI agent
+        # as "admin" too, so type alone is not enough.
+        bot_ids = bot_admin_ids or set()
         admin_replies = [
             p for p in parts
             if p.author_type == "admin"
+            and p.author_id not in bot_ids
             and p.body_text
             and p.body_text.strip()
             and p.part_type in ("comment", "source", None, "")
@@ -422,4 +442,8 @@ class IntercomClient:
             parts=parts,
             admin_reply_count=len(admin_replies),
             total_parts_count=len(parts),
+            intercom_url=(
+                f"https://app.intercom.com/a/inbox/{app_id}/inbox/conversation/{conv_id}"
+                if app_id else None
+            ),
         )
