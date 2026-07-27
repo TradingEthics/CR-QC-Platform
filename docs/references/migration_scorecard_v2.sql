@@ -135,8 +135,11 @@ COMMIT;
 
 -- ------------------------------------------------------------
 -- 4. Rebuild agent_qc_summary with new severity labels
+--    (DROP first — CREATE OR REPLACE cannot rename existing view columns)
 -- ------------------------------------------------------------
-CREATE OR REPLACE VIEW agent_qc_summary AS
+DROP VIEW IF EXISTS agent_qc_summary;
+
+CREATE VIEW agent_qc_summary AS
 SELECT
   a.id AS agent_id,
   a.name AS agent_name,
