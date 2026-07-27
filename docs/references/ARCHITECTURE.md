@@ -37,20 +37,29 @@ Supabase (scores + flags)  ◀──── Next.js Dashboard
 
 Each conversation starts at **100**. Errors detected by the AI deduct points:
 
+26 categories across 4 tiers (4 + 12 + 2 + 8):
+
 | Severity | Deduction | Error Types |
 |----------|-----------|-------------|
-| Critical Fail | −50 | Loss of business, Non-compliant closure, Unauthorized disclosure |
-| Critical Error | −15 | Incorrect info, Wrong branding, Context-altering typos, Unprofessional, Escalation errors (5 subtypes), Lack of investigation, Empathy errors (3 subtypes) |
-| Significant Error | −15 | Grammar, Spelling, Typos |
-| Major Error | −7.5 | Missing info, Outdated macros, Info overload, Overcomplicated response, Engagement issues, ChatGPT overuse, Missing minimal info |
+| Critical Fail | −50 | Loss of business, Non-compliant closure, Refund/Payout accuracy, Unauthorized disclosure |
+| Major Error | −20 | Incorrect info, Wrong branding, Context-altering spelling, Unprofessional, Escalation errors (4 subtypes), Lack of investigation, Outdated macro, Empathy errors (2 subtypes) |
+| Significant Error | −15 | Missing information, Exaggerated engagement |
+| Minor Error | −7.5 | Info overload, Overcomplication, Inadequate/excessive engagement, ChatGPT overuse, Missing minimal info, Grammar, Spelling, Typos |
 
-**Final QC Score** = max(0, 100 − sum(deductions))
+**Final QC Score** = max(0, 100 − sum(deductions)), one deduction per distinct category hit. The AI detects errors; the worker computes the score.
 
 ### Routing Logic
 
-- **CX Score 1–2** → `pending_review` (manual review queue)
-- **CX Score 3–5** → `auto_approved` (skip manual review)
-- Any conversation can be manually reviewed regardless of CX Score
+QC score is the primary gate; CX score is stored when Intercom provides it and **ignored when absent** (a missing CX never lowers a score or forces review):
+
+- **QC score < 75** → `pending_review` (manual audit)
+- **QC score ≥ 75** → `auto_approved`
+- **CX score present and 1–2** → `pending_review` (angry customer, even if QC passed)
+- Any conversation can be manually reviewed regardless of score
+
+### Grading Bands (dashboard)
+
+`≥ 90` Excellent · `80–89` Good · `75–79` Average · `< 75` Fail (audit). 75 is the pass mark.
 
 ### AI Scoring Strategy
 
