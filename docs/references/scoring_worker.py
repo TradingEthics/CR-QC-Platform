@@ -338,11 +338,13 @@ def run(limit: int, dry_run: bool, use_batch: bool, intercom_id: Optional[str]) 
     from supabase import create_client
     supabase = create_client(cfg["supabase_url"], cfg["supabase_key"])
 
-    categories = sp.load_categories(supabase)
-    system_prompt = sp.build_system_prompt(categories)
+    categories = sp.load_categories(supabase, ai_only=True)
+    knowledge_base = sp.load_knowledge_base()
+    system_prompt = sp.build_system_prompt(categories, knowledge_base)
     schema = sp.build_response_schema(categories)
     cat_by_subtype = sp.category_index(categories)
-    console.print(f"[bold]Loaded {len(categories)} scoring categories.[/bold]")
+    kb_note = f", knowledge base {len(knowledge_base)} chars" if knowledge_base else " (no knowledge base found)"
+    console.print(f"[bold]Loaded {len(categories)} AI-scoreable categories{kb_note}.[/bold]")
 
     convs = fetch_unscored(supabase, limit, intercom_id)
     if not convs:

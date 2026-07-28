@@ -128,6 +128,7 @@ CREATE TABLE scoring_categories (
   error_subtype   TEXT,                       -- More specific classification
   description     TEXT NOT NULL,              -- Full definition for AI prompt
   is_active       BOOLEAN DEFAULT TRUE,
+  ai_scoreable    BOOLEAN DEFAULT TRUE,       -- FALSE = manual reviewers only (AI lacks ground truth)
   sort_order      INTEGER DEFAULT 0,
   created_at      TIMESTAMPTZ DEFAULT NOW()
 );
@@ -395,10 +396,10 @@ INSERT INTO scoring_categories (section, severity, deduction, error_type, error_
  'Agent chose to escalate a case to other stakeholders even when they possessed the capability to resolve the issue independently. Unwarranted escalations can result in inefficiencies, increased workload for different departments, and delays in addressing legitimately pressing concerns. Double-check prior escalation history to avoid duplicate cases and unnecessary delays.', 15),
 
 ('Major Error', 'major', 20, 'Lack of Escalation/Unnecessary Escalation', 'Incorrect Escalation Channel/Team Assignment',
- 'Agent overlooked the specified criteria for escalation or mistakenly escalated the case to the wrong team, leading to delays in resolution and misallocation of resources.', 16),
+ 'Flag when the agent''s reply does not match the client''s actual issue or context — e.g., the response addresses a different problem than the one the client raised — indicating the case was handled or routed incorrectly. Judge strictly from whether the agent''s response substantively addresses the client''s stated concern.', 16),
 
 ('Major Error', 'major', 20, 'Lack of Escalation/Unnecessary Escalation', 'Neglected Escalation History Verification',
- 'Agent failed to review the prior escalation records, which resulted in the submission of a duplicate case to CR, RM, BDev, Finance, Pro Support, or Discord, leading to delays in resolving the matter.', 17),
+ 'Flag when the client appears to have received the same or a near-duplicate response from more than one agent across the thread — a sign the agent did not review prior escalation/response history before replying, risking a duplicate case. Detect this from repeated agent replies with substantially the same content directed at the same client concern.', 17),
 
 ('Major Error', 'major', 20, 'Lack of Investigation', 'Lack of Investigation',
  'The agent closed the ticket or email without thoroughly examining the client''s concern while overlooking some important details. Verify that all client issues are thoroughly investigated before responding or escalating. Ensure that responses regarding accounts are factually correct and aligned with our rules.', 18),
@@ -443,6 +444,16 @@ INSERT INTO scoring_categories (section, severity, deduction, error_type, error_
 
 ('Minor Error', 'minor', 7.5, 'Grammatical Errors', 'Typos',
  'Instances where the agent commits typographical errors in their responses.', 47);
+
+-- Categories the AI cannot judge (needs payment backend, macro library, or
+-- internal escalation criteria) — reserved for manual reviewers only.
+UPDATE scoring_categories SET ai_scoreable = FALSE
+WHERE error_subtype IN (
+  'Refund/Payout Accuracy',
+  'Outdated or Inadequate Macro Usage',
+  'Lack of Escalation',
+  'Unnecessary Escalation'
+);
 
 -- ============================================================
 -- TRIGGER: Auto-update updated_at

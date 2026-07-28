@@ -47,20 +47,27 @@ def qc_band(score: Optional[float]) -> str:
     return "Fail"
 
 
-def load_categories(supabase: Any) -> list[dict]:
+def load_categories(supabase: Any, ai_only: bool = False) -> list[dict]:
     """Load active scoring categories from Supabase, ordered by sort_order.
+
+    ai_only=True returns only categories the AI can judge from the thread +
+    knowledge base (ai_scoreable). Manual-only categories (needing payment/macro/
+    escalation ground truth the AI lacks) are excluded from the scoring prompt so
+    the model can never hallucinate them, but stay available to human reviewers.
 
     Raises if the rubric is empty (nothing seeded) or if two active categories
     share an error_subtype — the subtype is the model's category key and must
     be unique, or scoring would map an error to the wrong deduction.
     """
-    resp = (
+    q = (
         supabase.table("scoring_categories")
-        .select("id, section, severity, deduction, error_type, error_subtype, description, sort_order")
+        .select("id, section, severity, deduction, error_type, error_subtype, "
+                "description, sort_order, ai_scoreable")
         .eq("is_active", True)
-        .order("sort_order")
-        .execute()
     )
+    if ai_only:
+        q = q.eq("ai_scoreable", True)
+    resp = q.order("sort_order").execute()
     categories: list[dict] = resp.data or []
     if not categories:
         raise RuntimeError(
@@ -87,6 +94,19 @@ def load_categories(supabase: Any) -> list[dict]:
 def category_index(categories: list[dict]) -> dict[str, dict]:
     """subtype -> category row, for mapping the model's answer back to a deduction."""
     return {(c["error_subtype"] or "").strip(): c for c in categories}
+
+
+def load_knowledge_base(path: str = "knowledge_base.md") -> str:
+    """Load the FundedNext rules/process reference used to judge Incorrect
+    Information. Returns '' if the file is missing (scoring still works; the
+    model just judges Incorrect Information more conservatively without it)."""
+    import os
+    kb_path = path if os.path.isabs(path) else os.path.join(os.path.dirname(__file__), path)
+    try:
+        with open(kb_path, "r", encoding="utf-8") as fh:
+            return fh.read().strip()
+    except FileNotFoundError:
+        return ""
 
 
 # ------------------------------------------------------------------
@@ -121,6 +141,13 @@ HOW TO GRADE
   If a category recurs, note it in the explanation (e.g., "3 instances").
 - If the agent replies are clean, return an empty errors list.
 
+SPECIAL RULE — Incorrect Information:
+- Only flag "Incorrect Information" when the agent's statement CLEARLY
+  contradicts a rule in the KNOWLEDGE BASE below. Processes change; the base is
+  the baseline, not an exhaustive list. If the base is silent or the agent's
+  wording is a reasonable paraphrase, DO NOT flag. Never flag it from your own
+  assumptions about FundedNext's rules.
+
 SCORECARD (severity shown for your judgment; you do not apply the points):
 """
 
@@ -130,8 +157,12 @@ Return ONLY the structured JSON defined by the response schema. No prose outside
 """
 
 
-def build_system_prompt(categories: list[dict]) -> str:
-    """Assemble the full rubric prompt grouped by severity tier."""
+def build_system_prompt(categories: list[dict], knowledge_base: str = "") -> str:
+    """Assemble the full rubric prompt grouped by severity tier.
+
+    knowledge_base: FundedNext rules/process reference (from load_knowledge_base)
+    appended so the model can judge Incorrect Information against documented rules.
+    """
     # Group by section, preserving sort order.
     tiers: dict[str, list[dict]] = {}
     for cat in categories:
@@ -147,6 +178,13 @@ def build_system_prompt(categories: list[dict]) -> str:
             if cat.get("error_type") and cat["error_type"] != name:
                 lines.append(f"  (type: {cat['error_type']})")
             lines.append(f"  {cat['description'].strip()}")
+
+    if knowledge_base:
+        lines.append("\n\n" + "=" * 60)
+        lines.append("KNOWLEDGE BASE — FundedNext rules (ground truth for Incorrect Information)")
+        lines.append("=" * 60)
+        lines.append(knowledge_base)
+
     lines.append(_SYSTEM_FOOTER)
     return "\n".join(lines)
 
