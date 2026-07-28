@@ -473,7 +473,7 @@ async def run_ingestion(
                 writer=writer,
                 inbox_intercom_id=inbox_id,
                 inbox_name=inbox_name,
-                since=since if full_sync else None,  # For incremental, use per-inbox sync state
+                since=since,  # incremental: LOOKBACK_HOURS window; full: None (all time)
                 dry_run=dry_run,
                 bot_admin_ids=bot_admin_ids,
             )
