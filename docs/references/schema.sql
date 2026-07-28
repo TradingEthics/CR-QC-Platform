@@ -27,7 +27,8 @@ CREATE TYPE error_severity AS ENUM (
 
 CREATE TYPE scoring_provider AS ENUM (
   'gemini',
-  'kimi',
+  'openrouter',   -- any OpenRouter model (e.g. deepseek/deepseek-v4-flash); model_name holds the slug
+  'kimi',         -- legacy alias; kept for backward compatibility
   'manual'
 );
 

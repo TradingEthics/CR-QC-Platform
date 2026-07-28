@@ -63,16 +63,18 @@ def get_config() -> dict:
     return {
         "supabase_url": os.getenv("SUPABASE_URL", ""),
         "supabase_key": os.getenv("SUPABASE_SERVICE_KEY", ""),
-        # Which provider to score with: 'gemini' or 'kimi' (OpenRouter).
+        # Which provider to score with: 'gemini' or 'openrouter'.
         "provider": os.getenv("SCORING_PROVIDER", "gemini").lower(),
         # Gemini
         "gemini_key": os.getenv("GEMINI_API_KEY", ""),
         "model": os.getenv("GEMINI_MODEL", "gemini-3.6-flash"),
         "use_batch": os.getenv("GEMINI_USE_BATCH", "true").lower() == "true",
         "batch_size": int(os.getenv("SCORING_BATCH_SIZE", "10")),
-        # Kimi via OpenRouter (fallback / free-tier-Gemini bypass)
+        # OpenRouter (any OpenAI-compatible model; fallback / free-tier-Gemini bypass).
+        # OPENROUTER_MODEL is the slug, e.g. deepseek/deepseek-v4-flash.
+        # KIMI_MODEL kept as a legacy fallback so existing .env files keep working.
         "openrouter_key": os.getenv("OPENROUTER_API_KEY", ""),
-        "kimi_model": os.getenv("KIMI_MODEL", "moonshotai/kimi-k2.5"),
+        "openrouter_model": os.getenv("OPENROUTER_MODEL") or os.getenv("KIMI_MODEL", "deepseek/deepseek-v4-flash"),
     }
 
 
@@ -232,12 +234,13 @@ def _strip_fences(text: str) -> str:
     return t.strip()
 
 
-def score_sync_kimi(model, api_key, system_prompt, schema, user_prompt) -> dict:
-    """One synchronous scoring call via Kimi (OpenRouter, OpenAI-compatible).
+def score_sync_openrouter(model, api_key, system_prompt, schema, user_prompt) -> dict:
+    """One synchronous scoring call via OpenRouter (OpenAI-compatible).
 
-    OpenRouter's json_object mode doesn't enforce a schema, so we describe the
-    exact schema in the system message and parse defensively. compute_assessment
-    already tolerates missing/unknown fields.
+    Works with any OpenRouter model (e.g. deepseek/deepseek-v4-flash). Its
+    json_object mode doesn't enforce a schema, so we describe the exact schema in
+    the system message and parse defensively. compute_assessment already tolerates
+    missing/unknown fields.
     """
     import httpx
 
@@ -430,12 +433,16 @@ def run(limit: int, dry_run: bool, use_batch: bool, intercom_id: Optional[str],
         console.print(f"\n[bold]USER PROMPT for {prepared[0]['conv']['intercom_id']}:[/bold]\n{prepared[0]['user_prompt'][:2000]}")
         return
 
-    provider = cfg["provider"] if cfg["provider"] in ("gemini", "kimi") else "gemini"
-    if provider == "kimi":
+    provider = cfg["provider"]
+    if provider == "kimi":  # legacy alias
+        provider = "openrouter"
+    if provider not in ("gemini", "openrouter"):
+        provider = "gemini"
+    if provider == "openrouter":
         if not cfg["openrouter_key"]:
-            console.print("[red]ERROR: OPENROUTER_API_KEY required for Kimi scoring[/red]")
+            console.print("[red]ERROR: OPENROUTER_API_KEY required for OpenRouter scoring[/red]")
             sys.exit(1)
-        model = cfg["kimi_model"]
+        model = cfg["openrouter_model"]
     else:
         if not cfg["gemini_key"]:
             console.print("[red]ERROR: GEMINI_API_KEY required for scoring[/red]")
@@ -471,8 +478,8 @@ def run(limit: int, dry_run: bool, use_batch: bool, intercom_id: Optional[str],
         for prep in prepared:
             conv = prep["conv"]
             try:
-                if provider == "kimi":
-                    result = score_sync_kimi(model, cfg["openrouter_key"], system_prompt, schema, prep["user_prompt"])
+                if provider == "openrouter":
+                    result = score_sync_openrouter(model, cfg["openrouter_key"], system_prompt, schema, prep["user_prompt"])
                 else:
                     result = score_sync(gemini_client, model, system_prompt, schema, prep["user_prompt"])
                 tokens = {k: result[k] for k in ("prompt_tokens", "completion_tokens", "latency_ms")}
@@ -518,8 +525,8 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="Build prompts only; no AI call, no DB writes")
     parser.add_argument("--sync", action="store_true", help="Force synchronous scoring (overrides GEMINI_USE_BATCH)")
     parser.add_argument("--batch", action="store_true", help="Force Gemini Batch Mode")
-    parser.add_argument("--provider", choices=["gemini", "kimi"], default=None,
-                        help="Scoring provider (overrides SCORING_PROVIDER env)")
+    parser.add_argument("--provider", choices=["gemini", "openrouter", "kimi"], default=None,
+                        help="Scoring provider (overrides SCORING_PROVIDER env); 'kimi' is an alias for 'openrouter'")
     parser.add_argument("--conversation", type=str, default=None, help="Score a single conversation by intercom_id")
     args = parser.parse_args()
 
