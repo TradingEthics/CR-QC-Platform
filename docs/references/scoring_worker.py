@@ -50,9 +50,9 @@ import scoring_prompt as sp
 load_dotenv()
 console = Console()
 
-PROVIDER = "gemini"
 POLL_INTERVAL_SECONDS = 20
 BATCH_TERMINAL_STATES = {"JOB_STATE_SUCCEEDED", "JOB_STATE_FAILED", "JOB_STATE_CANCELLED", "JOB_STATE_EXPIRED"}
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 
 # ------------------------------------------------------------------
@@ -63,10 +63,16 @@ def get_config() -> dict:
     return {
         "supabase_url": os.getenv("SUPABASE_URL", ""),
         "supabase_key": os.getenv("SUPABASE_SERVICE_KEY", ""),
+        # Which provider to score with: 'gemini' or 'kimi' (OpenRouter).
+        "provider": os.getenv("SCORING_PROVIDER", "gemini").lower(),
+        # Gemini
         "gemini_key": os.getenv("GEMINI_API_KEY", ""),
         "model": os.getenv("GEMINI_MODEL", "gemini-3.6-flash"),
         "use_batch": os.getenv("GEMINI_USE_BATCH", "true").lower() == "true",
         "batch_size": int(os.getenv("SCORING_BATCH_SIZE", "10")),
+        # Kimi via OpenRouter (fallback / free-tier-Gemini bypass)
+        "openrouter_key": os.getenv("OPENROUTER_API_KEY", ""),
+        "kimi_model": os.getenv("KIMI_MODEL", "moonshotai/kimi-k2.5"),
     }
 
 
@@ -216,6 +222,58 @@ def score_sync(client, model, system_prompt, schema, user_prompt) -> dict:
     }
 
 
+def _strip_fences(text: str) -> str:
+    """Remove ```json ... ``` fences some models wrap JSON in."""
+    t = text.strip()
+    if t.startswith("```"):
+        t = t.split("\n", 1)[1] if "\n" in t else t[3:]
+        if t.rstrip().endswith("```"):
+            t = t.rstrip()[:-3]
+    return t.strip()
+
+
+def score_sync_kimi(model, api_key, system_prompt, schema, user_prompt) -> dict:
+    """One synchronous scoring call via Kimi (OpenRouter, OpenAI-compatible).
+
+    OpenRouter's json_object mode doesn't enforce a schema, so we describe the
+    exact schema in the system message and parse defensively. compute_assessment
+    already tolerates missing/unknown fields.
+    """
+    import httpx
+
+    sys_msg = (
+        system_prompt
+        + "\n\nRespond with ONLY a JSON object (no prose, no code fences) matching "
+        "exactly this JSON schema:\n" + json.dumps(schema)
+    )
+    start = time.monotonic()
+    resp = httpx.post(
+        OPENROUTER_URL,
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json={
+            "model": model,
+            "messages": [
+                {"role": "system", "content": sys_msg},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": 0,
+            "response_format": {"type": "json_object"},
+        },
+        timeout=180.0,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    content = data["choices"][0]["message"]["content"]
+    payload = json.loads(_strip_fences(content))
+    usage = data.get("usage", {}) or {}
+    return {
+        "payload": payload,
+        "prompt_tokens": usage.get("prompt_tokens"),
+        "completion_tokens": usage.get("completion_tokens"),
+        "latency_ms": int((time.monotonic() - start) * 1000),
+    }
+
+
 def score_batch(client, model, system_prompt, schema, user_prompts: list[str]) -> list[Optional[dict]]:
     """Gemini Batch Mode over many prompts. Returns one payload dict per prompt (None on failure).
 
@@ -266,10 +324,10 @@ def score_batch(client, model, system_prompt, schema, user_prompts: list[str]) -
 # Persistence
 # ------------------------------------------------------------------
 
-def start_run(supabase: Any, model: str) -> str:
+def start_run(supabase: Any, provider: str, model: str) -> str:
     row = (
         supabase.table("scoring_runs")
-        .insert({"provider": PROVIDER, "model_name": model})
+        .insert({"provider": provider, "model_name": model})
         .execute()
     )
     return row.data[0]["id"]
@@ -290,6 +348,7 @@ def persist_assessment(
     conv: dict,
     assessment: dict,
     overall_reasoning: str,
+    provider: str,
     model: str,
     run_id: str,
     tokens: dict,
@@ -301,7 +360,7 @@ def persist_assessment(
             "conversation_id": conv["id"],
             "total_deductions": assessment["total_deductions"],
             "final_score": assessment["final_score"],
-            "provider": PROVIDER,
+            "provider": provider,
             "model_name": model,
             "ai_reasoning": overall_reasoning,
             "prompt_tokens": tokens.get("prompt_tokens"),
@@ -329,8 +388,11 @@ def persist_assessment(
 # Orchestration
 # ------------------------------------------------------------------
 
-def run(limit: int, dry_run: bool, use_batch: bool, intercom_id: Optional[str]) -> None:
+def run(limit: int, dry_run: bool, use_batch: bool, intercom_id: Optional[str],
+        provider_override: Optional[str] = None) -> None:
     cfg = get_config()
+    if provider_override:
+        cfg["provider"] = provider_override
     if not cfg["supabase_url"] or not cfg["supabase_key"]:
         console.print("[red]ERROR: SUPABASE_URL and SUPABASE_SERVICE_KEY required[/red]")
         sys.exit(1)
@@ -368,19 +430,27 @@ def run(limit: int, dry_run: bool, use_batch: bool, intercom_id: Optional[str]) 
         console.print(f"\n[bold]USER PROMPT for {prepared[0]['conv']['intercom_id']}:[/bold]\n{prepared[0]['user_prompt'][:2000]}")
         return
 
-    if not cfg["gemini_key"]:
-        console.print("[red]ERROR: GEMINI_API_KEY required for scoring[/red]")
-        sys.exit(1)
+    provider = cfg["provider"] if cfg["provider"] in ("gemini", "kimi") else "gemini"
+    if provider == "kimi":
+        if not cfg["openrouter_key"]:
+            console.print("[red]ERROR: OPENROUTER_API_KEY required for Kimi scoring[/red]")
+            sys.exit(1)
+        model = cfg["kimi_model"]
+    else:
+        if not cfg["gemini_key"]:
+            console.print("[red]ERROR: GEMINI_API_KEY required for scoring[/red]")
+            sys.exit(1)
+        model = cfg["model"]
 
-    client = _make_client(cfg["gemini_key"])
-    run_id = start_run(supabase, cfg["model"])
+    run_id = start_run(supabase, provider, model)
     scored, failed, score_sum, err_log = 0, 0, 0.0, []
 
-    if use_batch:
+    if provider == "gemini" and use_batch:
+        client = _make_client(cfg["gemini_key"])
         console.print("[bold]Path: Gemini Batch Mode[/bold]")
         try:
             payloads = score_batch(
-                client, cfg["model"], system_prompt, schema,
+                client, model, system_prompt, schema,
                 [p["user_prompt"] for p in prepared],
             )
         except Exception as exc:  # noqa: BLE001
@@ -389,20 +459,24 @@ def run(limit: int, dry_run: bool, use_batch: bool, intercom_id: Optional[str]) 
             sys.exit(1)
 
         for prep, payload in zip(prepared, payloads):
-            ok = _finalize_one(supabase, prep, payload, cat_by_subtype, cfg["model"], run_id, {}, err_log)
+            ok = _finalize_one(supabase, prep, payload, cat_by_subtype, provider, model, run_id, {}, err_log)
             if ok is None:
                 failed += 1
             else:
                 scored += 1
                 score_sum += ok
     else:
-        console.print("[bold]Path: synchronous[/bold]")
+        gemini_client = _make_client(cfg["gemini_key"]) if provider == "gemini" else None
+        console.print(f"[bold]Path: synchronous ({provider} / {model})[/bold]")
         for prep in prepared:
             conv = prep["conv"]
             try:
-                result = score_sync(client, cfg["model"], system_prompt, schema, prep["user_prompt"])
+                if provider == "kimi":
+                    result = score_sync_kimi(model, cfg["openrouter_key"], system_prompt, schema, prep["user_prompt"])
+                else:
+                    result = score_sync(gemini_client, model, system_prompt, schema, prep["user_prompt"])
                 tokens = {k: result[k] for k in ("prompt_tokens", "completion_tokens", "latency_ms")}
-                ok = _finalize_one(supabase, prep, result["payload"], cat_by_subtype, cfg["model"], run_id, tokens, err_log)
+                ok = _finalize_one(supabase, prep, result["payload"], cat_by_subtype, provider, model, run_id, tokens, err_log)
                 if ok is None:
                     failed += 1
                 else:
@@ -419,7 +493,7 @@ def run(limit: int, dry_run: bool, use_batch: bool, intercom_id: Optional[str]) 
     console.print(f"\n[bold green]Done.[/bold green] scored={scored} failed={failed} avg={round(avg, 2) if avg else 'n/a'}")
 
 
-def _finalize_one(supabase, prep, payload, cat_by_subtype, model, run_id, tokens, err_log) -> Optional[float]:
+def _finalize_one(supabase, prep, payload, cat_by_subtype, provider, model, run_id, tokens, err_log) -> Optional[float]:
     """Score + persist one conversation from a model payload. Returns final_score or None on failure."""
     conv = prep["conv"]
     if payload is None:
@@ -429,7 +503,7 @@ def _finalize_one(supabase, prep, payload, cat_by_subtype, model, run_id, tokens
         assessment = compute_assessment(payload.get("errors", []), cat_by_subtype, prep["parts"])
         persist_assessment(
             supabase, conv, assessment,
-            payload.get("overall_reasoning", ""), model, run_id, tokens,
+            payload.get("overall_reasoning", ""), provider, model, run_id, tokens,
         )
         return assessment["final_score"]
     except Exception as exc:  # noqa: BLE001
@@ -444,6 +518,8 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="Build prompts only; no AI call, no DB writes")
     parser.add_argument("--sync", action="store_true", help="Force synchronous scoring (overrides GEMINI_USE_BATCH)")
     parser.add_argument("--batch", action="store_true", help="Force Gemini Batch Mode")
+    parser.add_argument("--provider", choices=["gemini", "kimi"], default=None,
+                        help="Scoring provider (overrides SCORING_PROVIDER env)")
     parser.add_argument("--conversation", type=str, default=None, help="Score a single conversation by intercom_id")
     args = parser.parse_args()
 
@@ -454,7 +530,8 @@ def main() -> None:
     if args.batch:
         use_batch = True
 
-    run(limit=args.limit, dry_run=args.dry_run, use_batch=use_batch, intercom_id=args.conversation)
+    run(limit=args.limit, dry_run=args.dry_run, use_batch=use_batch,
+        intercom_id=args.conversation, provider_override=args.provider)
 
 
 if __name__ == "__main__":
