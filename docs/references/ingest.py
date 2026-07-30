@@ -154,7 +154,14 @@ class SupabaseWriter:
         """
         # Resolve foreign keys
         inbox_uuid = self._inbox_cache.get(conv.team_id) if conv.team_id else None
-        agent_uuid = self._agent_cache.get(conv.assignee_id) if conv.assignee_id else None
+        # Primary agent = the human admin who authored the most reply parts (the
+        # QC target). Assignee is often empty and a thread can have several
+        # repliers, so attribute to the dominant responder; fall back to assignee.
+        from collections import Counter
+        admin_authors = [p.author_id for p in conv.parts
+                         if p.author_type == "admin" and p.author_id]
+        primary_author = Counter(admin_authors).most_common(1)[0][0] if admin_authors else conv.assignee_id
+        agent_uuid = self._agent_cache.get(primary_author) if primary_author else None
         
         # Prepare conversation data
         conv_data = {

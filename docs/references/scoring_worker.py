@@ -83,7 +83,13 @@ def get_config() -> dict:
 # ------------------------------------------------------------------
 
 def fetch_unscored(supabase: Any, limit: int, intercom_id: Optional[str]) -> list[dict]:
-    """Conversations ready to score: pending_scoring with a human reply."""
+    """Conversations ready to score.
+
+    Scope: pending_scoring, with a human reply, AND CX-eligible for audit —
+    CX score is absent (not rated) OR low (1-2). Satisfied customers (CX 3-5) are
+    skipped; those interactions don't need AI QC. A single --conversation id
+    bypasses the CX filter for targeted re-scoring.
+    """
     q = (
         supabase.table("conversations")
         .select("id, intercom_id, inbox_id, agent_id, cx_score, subject, "
@@ -93,6 +99,9 @@ def fetch_unscored(supabase: Any, limit: int, intercom_id: Optional[str]) -> lis
     )
     if intercom_id:
         q = q.eq("intercom_id", intercom_id)
+    else:
+        # CX absent OR CX in {1,2}
+        q = q.or_("cx_score.is.null,cx_score.lte.2")
     q = q.order("intercom_created_at", desc=False).limit(limit)
     return q.execute().data or []
 
@@ -249,22 +258,32 @@ def score_sync_openrouter(model, api_key, system_prompt, schema, user_prompt) ->
         + "\n\nRespond with ONLY a JSON object (no prose, no code fences) matching "
         "exactly this JSON schema:\n" + json.dumps(schema)
     )
+    body = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": sys_msg},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0,
+        "response_format": {"type": "json_object"},
+    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
     start = time.monotonic()
-    resp = httpx.post(
-        OPENROUTER_URL,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={
-            "model": model,
-            "messages": [
-                {"role": "system", "content": sys_msg},
-                {"role": "user", "content": user_prompt},
-            ],
-            "temperature": 0,
-            "response_format": {"type": "json_object"},
-        },
-        timeout=180.0,
-    )
-    resp.raise_for_status()
+    # Retry transient network/5xx/429 blips so a hiccup doesn't fail the row.
+    last_exc = None
+    for attempt in range(4):
+        try:
+            resp = httpx.post(OPENROUTER_URL, headers=headers, json=body, timeout=180.0)
+            if resp.status_code in (429, 500, 502, 503, 504):
+                raise httpx.HTTPStatusError("transient", request=resp.request, response=resp)
+            resp.raise_for_status()
+            break
+        except (httpx.TransportError, httpx.HTTPStatusError) as exc:
+            last_exc = exc
+            if attempt == 3:
+                raise
+            time.sleep(2 ** attempt * 3)  # 3s, 6s, 12s
     data = resp.json()
     content = data["choices"][0]["message"]["content"]
     payload = json.loads(_strip_fences(content))
