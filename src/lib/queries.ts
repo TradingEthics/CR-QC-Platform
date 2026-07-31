@@ -203,6 +203,17 @@ export async function getReviewQueue(): Promise<(Conversation & { agent_name: st
   }));
 }
 
+/** All active scoring categories (for the manual "add error" picker). */
+export async function getScoringCategories(): Promise<ScoringCategory[]> {
+  const sb = createServerSupabase();
+  const { data } = await sb
+    .from("scoring_categories")
+    .select("id, section, severity, deduction, error_type, error_subtype, description, ai_scoreable")
+    .eq("is_active", true)
+    .order("sort_order");
+  return (data ?? []) as ScoringCategory[];
+}
+
 /** Platform-wide distribution for the dashboard header. */
 export async function getOverallStats(sinceIso?: string) {
   const sb = createServerSupabase();

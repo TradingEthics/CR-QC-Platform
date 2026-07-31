@@ -1,26 +1,114 @@
 @import "tailwindcss";
 
+/* ------------------------------------------------------------------ *
+ * OpsCore-style palette: deep indigo sidebar, light glass content,
+ * violet accents. Class-based dark mode (next-themes).
+ * ------------------------------------------------------------------ */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f5f6fb;
+  --foreground: #1a1a2e;
+  --card: rgba(255, 255, 255, 0.72);
+  --card-solid: #ffffff;
+  --card-foreground: #1a1a2e;
+  --muted: #eceef5;
+  --muted-foreground: #6b7186;
+  --primary: #4f46e5;
+  --primary-hover: #4338ca;
+  --primary-foreground: #ffffff;
+  --accent: #ede9fe;
+  --accent-foreground: #5b21b6;
+  --border: rgba(23, 23, 46, 0.08);
+  --border-strong: rgba(23, 23, 46, 0.12);
+  --ring: #6366f1;
+  --glass-blur: 14px;
+
+  --sidebar-from: #211d4e;
+  --sidebar-to: #2e2a63;
+  --sidebar-foreground: #c7c9e8;
+  --sidebar-muted: #8f92c4;
+  --sidebar-active-bg: rgba(255, 255, 255, 0.10);
+  --sidebar-active-fg: #ffffff;
+}
+
+.dark {
+  --background: #0a0a12;
+  --foreground: #e6e7f5;
+  --card: rgba(30, 30, 48, 0.55);
+  --card-solid: #14141f;
+  --card-foreground: #e6e7f5;
+  --muted: #1b1b2a;
+  --muted-foreground: #9296b0;
+  --primary: #6366f1;
+  --primary-hover: #4f46e5;
+  --primary-foreground: #ffffff;
+  --accent: #2a2450;
+  --accent-foreground: #c4b5fd;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.14);
+  --ring: #818cf8;
+
+  --sidebar-from: #14122e;
+  --sidebar-to: #1b1840;
+  --sidebar-foreground: #b9bce0;
+  --sidebar-muted: #6f72a3;
+  --sidebar-active-bg: rgba(255, 255, 255, 0.08);
+  --sidebar-active-fg: #ffffff;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-ring: var(--ring);
+  --radius-xl: 1rem;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  border-color: var(--border);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
 }
+
+.app-canvas {
+  background:
+    radial-gradient(1200px 600px at 15% -10%, rgba(99, 102, 241, 0.10), transparent 60%),
+    radial-gradient(1000px 500px at 100% 0%, rgba(139, 92, 246, 0.08), transparent 55%);
+}
+
+/* ---- Glassmorphism ---- */
+@utility glass {
+  background: var(--card);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 2px rgba(16, 16, 40, 0.04), 0 8px 24px -12px rgba(16, 16, 40, 0.12);
+}
+
+@utility glass-strong {
+  background: var(--card-solid);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 1px 2px rgba(16, 16, 40, 0.05), 0 12px 32px -14px rgba(16, 16, 40, 0.18);
+}
+
+@utility sidebar-gradient {
+  background: linear-gradient(180deg, var(--sidebar-from), var(--sidebar-to));
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 8px; }
