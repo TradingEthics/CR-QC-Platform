@@ -6,19 +6,43 @@ import {
   LayoutDashboard,
   Users,
   ClipboardCheck,
+  ListChecks,
+  Settings,
   LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme";
+import { signOutAction } from "@/app/actions/auth";
 
-const nav = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/agents", label: "Agents", icon: Users },
-  { href: "/review", label: "Review Queue", icon: ClipboardCheck },
+const groups = [
+  {
+    label: "Quality Control",
+    items: [
+      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/agents", label: "Agents", icon: Users },
+      { href: "/review", label: "Audit Queue", icon: ClipboardCheck },
+    ],
+  },
+  {
+    label: "Configuration",
+    items: [
+      { href: "/scorecard", label: "Scorecard", icon: ListChecks },
+      { href: "/settings", label: "Settings", icon: Settings },
+    ],
+  },
 ];
 
-export function Sidebar() {
+type SidebarUser = { name: string | null; email: string | null; image: string | null } | null;
+
+export function Sidebar({ user }: { user: SidebarUser }) {
   const pathname = usePathname();
+  const initials = (user?.name ?? user?.email ?? "QC")
+    .split(/[\s@.]/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((s) => s[0]?.toUpperCase())
+    .join("");
+
   return (
     <aside className="sidebar-gradient hidden w-64 shrink-0 flex-col justify-between md:flex">
       <div>
@@ -32,46 +56,55 @@ export function Sidebar() {
           </div>
         </div>
 
-        <div className="px-3 pt-2">
-          <div className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--sidebar-muted)]">
-            Quality Control
-          </div>
-          <nav className="flex flex-col gap-1">
-            {nav.map(({ href, label, icon: Icon }) => {
-              const active = pathname === href || pathname.startsWith(href + "/");
-              return (
-                <Link
-                  key={href}
-                  href={href}
-                  className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                    active
-                      ? "bg-[var(--sidebar-active-bg)] text-[var(--sidebar-active-fg)]"
-                      : "text-[var(--sidebar-foreground)] hover:bg-white/5 hover:text-white"
-                  )}
-                >
-                  <Icon className="h-4 w-4" />
-                  {label}
-                </Link>
-              );
-            })}
-          </nav>
+        <div className="space-y-4 px-3 pt-1">
+          {groups.map((g) => (
+            <div key={g.label}>
+              <div className="px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--sidebar-muted)]">
+                {g.label}
+              </div>
+              <nav className="flex flex-col gap-1">
+                {g.items.map(({ href, label, icon: Icon }) => {
+                  const active = pathname === href || pathname.startsWith(href + "/");
+                  return (
+                    <Link
+                      key={href}
+                      href={href}
+                      className={cn(
+                        "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                        active
+                          ? "bg-[var(--sidebar-active-bg)] text-[var(--sidebar-active-fg)]"
+                          : "text-[var(--sidebar-foreground)] hover:bg-white/5 hover:text-white"
+                      )}
+                    >
+                      <Icon className="h-4 w-4" />
+                      {label}
+                    </Link>
+                  );
+                })}
+              </nav>
+            </div>
+          ))}
         </div>
       </div>
 
       <div className="m-3 rounded-xl bg-white/5 p-3">
         <div className="flex items-center gap-3">
           <div className="grid h-8 w-8 place-items-center rounded-full bg-[var(--primary)] text-xs font-semibold text-white">
-            QC
+            {initials || "QC"}
           </div>
           <div className="min-w-0">
-            <div className="truncate text-xs font-medium text-white">QC Reviewer</div>
-            <div className="truncate text-[10px] text-[var(--sidebar-muted)]">nextventures.io</div>
+            <div className="truncate text-xs font-medium text-white">{user?.name ?? "QC Reviewer"}</div>
+            <div className="truncate text-[10px] text-[var(--sidebar-muted)]">{user?.email ?? "not signed in"}</div>
           </div>
         </div>
-        <button className="mt-3 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-[var(--sidebar-foreground)] transition-colors hover:bg-white/5 hover:text-white">
-          <LogOut className="h-3.5 w-3.5" /> Sign out
-        </button>
+        <form action={signOutAction}>
+          <button
+            type="submit"
+            className="mt-3 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-[var(--sidebar-foreground)] transition-colors hover:bg-white/5 hover:text-white"
+          >
+            <LogOut className="h-3.5 w-3.5" /> Sign out
+          </button>
+        </form>
       </div>
     </aside>
   );
