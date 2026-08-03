@@ -1,5 +1,6 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
+import { getUserRole, DEFAULT_ROLE, type Role } from "@/lib/rbac";
 
 /** Domain allowed to sign in. */
 export const ALLOWED_DOMAIN = "nextventures.io";
@@ -32,6 +33,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const verified = (profile as { email_verified?: boolean } | undefined)?.email_verified;
       if (account?.provider !== "google") return false;
       return Boolean(verified) && email.toLowerCase().endsWith(`@${ALLOWED_DOMAIN}`);
+    },
+    // Resolve and cache the RBAC role in the JWT at sign-in. Role changes take
+    // effect on the user's next sign-in.
+    async jwt({ token, account }) {
+      if (account) {
+        token.role = await getUserRole(token.email);
+      }
+      return token;
+    },
+    session({ session, token }) {
+      if (session.user) session.user.role = (token.role as Role | undefined) ?? DEFAULT_ROLE;
+      return session;
     },
   },
   pages: { signIn: "/signin" },

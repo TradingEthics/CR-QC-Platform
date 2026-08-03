@@ -32,11 +32,16 @@ export async function getCrAgents(): Promise<Agent[]> {
   return (data ?? []) as Agent[];
 }
 
+/** Optional [since, until] window over conversation creation time (ISO strings). */
+export interface DateRange {
+  since?: string;
+  until?: string;
+}
+
 /** Per-agent leaderboard over scored conversations (optionally within a date window). */
-export async function getAgentLeaderboard(sinceIso?: string): Promise<AgentSummary[]> {
+export async function getAgentLeaderboard(range?: DateRange): Promise<AgentSummary[]> {
   const sb = createServerSupabase();
   const agents = await getCrAgents();
-  const byId = new Map(agents.map((a) => [a.id, a]));
   const ids = agents.map((a) => a.id);
   if (ids.length === 0) return [];
 
@@ -45,7 +50,8 @@ export async function getAgentLeaderboard(sinceIso?: string): Promise<AgentSumma
     .select("agent_id, qc_score, review_status")
     .in("agent_id", ids)
     .not("qc_score", "is", null);
-  if (sinceIso) q = q.gte("intercom_created_at", sinceIso);
+  if (range?.since) q = q.gte("intercom_created_at", range.since);
+  if (range?.until) q = q.lte("intercom_created_at", range.until);
   const { data } = await q;
 
   const rows = (data ?? []) as Pick<
@@ -107,10 +113,10 @@ export async function getAgent(agentId: string): Promise<Agent | null> {
   return (data as Agent) ?? null;
 }
 
-/** An agent's scored conversations, newest first, optionally within a window. */
+/** An agent's scored conversations, lowest QC first, optionally within a window. */
 export async function getAgentConversations(
   agentId: string,
-  sinceIso?: string
+  range?: DateRange
 ): Promise<Conversation[]> {
   const sb = createServerSupabase();
   let q = sb
@@ -120,7 +126,8 @@ export async function getAgentConversations(
     )
     .eq("agent_id", agentId)
     .not("qc_score", "is", null);
-  if (sinceIso) q = q.gte("intercom_created_at", sinceIso);
+  if (range?.since) q = q.gte("intercom_created_at", range.since);
+  if (range?.until) q = q.lte("intercom_created_at", range.until);
   const { data } = await q.order("qc_score", { ascending: true }).limit(500);
   return (data ?? []) as Conversation[];
 }
@@ -181,26 +188,63 @@ export async function getConversationDetail(
   };
 }
 
-/** Conversations awaiting manual audit (pending_review), lowest QC first. */
-export async function getReviewQueue(): Promise<(Conversation & { agent_name: string | null })[]> {
+export interface AuditQueueFilters {
+  agentId?: string;
+  range?: DateRange;
+  /** "pending" (default) shows pending_review only; "all" shows every scored convo. */
+  status?: "pending" | "all";
+}
+
+/** Conversations for the audit queue, lowest QC first, filtered by agent/date/status. */
+export async function getReviewQueue(
+  filters?: AuditQueueFilters
+): Promise<(Conversation & { agent_name: string | null })[]> {
   const sb = createServerSupabase();
   const agents = await getCrAgents();
   const byId = new Map(agents.map((a) => [a.id, a.name]));
   const ids = agents.map((a) => a.id);
   if (ids.length === 0) return [];
-  const { data } = await sb
+
+  // Restrict to the selected agent (must be a known CR agent) or all of them.
+  const scopeIds =
+    filters?.agentId && ids.includes(filters.agentId) ? [filters.agentId] : ids;
+
+  let q = sb
     .from("conversations")
     .select(
       "id, intercom_id, agent_id, cx_score, subject, qc_score, review_status, intercom_created_at, intercom_url"
     )
-    .in("agent_id", ids)
-    .eq("review_status", "pending_review")
-    .order("qc_score", { ascending: true })
-    .limit(200);
+    .in("agent_id", scopeIds)
+    .not("qc_score", "is", null);
+
+  if ((filters?.status ?? "pending") === "pending") {
+    q = q.eq("review_status", "pending_review");
+  }
+  if (filters?.range?.since) q = q.gte("intercom_created_at", filters.range.since);
+  if (filters?.range?.until) q = q.lte("intercom_created_at", filters.range.until);
+
+  const { data } = await q.order("qc_score", { ascending: true }).limit(500);
   return ((data ?? []) as Conversation[]).map((c) => ({
     ...c,
     agent_name: c.agent_id ? byId.get(c.agent_id) ?? null : null,
   }));
+}
+
+export interface AppUser {
+  email: string;
+  role: "admin" | "reviewer" | "agent";
+  updated_at: string | null;
+}
+
+/** All users with an assigned role, newest change first. */
+export async function getAppUsers(): Promise<AppUser[]> {
+  const sb = createServerSupabase();
+  const { data } = await sb
+    .from("app_users")
+    .select("email, role, updated_at")
+    .order("role")
+    .order("email");
+  return (data ?? []) as AppUser[];
 }
 
 /** All active scoring categories (for the manual "add error" picker). */
@@ -215,7 +259,7 @@ export async function getScoringCategories(): Promise<ScoringCategory[]> {
 }
 
 /** Platform-wide distribution for the dashboard header. */
-export async function getOverallStats(sinceIso?: string) {
+export async function getOverallStats(range?: DateRange) {
   const sb = createServerSupabase();
   const agents = await getCrAgents();
   const ids = agents.map((a) => a.id);
@@ -224,7 +268,8 @@ export async function getOverallStats(sinceIso?: string) {
     .select("qc_score, review_status")
     .in("agent_id", ids)
     .not("qc_score", "is", null);
-  if (sinceIso) q = q.gte("intercom_created_at", sinceIso);
+  if (range?.since) q = q.gte("intercom_created_at", range.since);
+  if (range?.until) q = q.lte("intercom_created_at", range.until);
   const { data } = await q;
   const rows = (data ?? []) as { qc_score: number; review_status: string }[];
   const stats = { total: rows.length, excellent: 0, good: 0, average: 0, fail: 0, pending_review: 0, avg: 0 };

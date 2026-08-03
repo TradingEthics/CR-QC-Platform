@@ -1,7 +1,10 @@
+import { redirect } from "next/navigation";
 import { CheckCircle2, XCircle } from "lucide-react";
 import { authConfigured, ALLOWED_DOMAIN, auth } from "@/auth";
-import { getCrAgents } from "@/lib/queries";
+import { getAppUsers } from "@/lib/queries";
 import { PageHeader, Card } from "@/components/ui";
+import { UserManagement } from "@/components/user-management";
+import { DEFAULT_ROLE } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +18,12 @@ function Row({ k, v }: { k: string; v: React.ReactNode }) {
 }
 
 export default async function SettingsPage() {
-  const [agents, session] = await Promise.all([getCrAgents(), auth()]);
+  const session = await auth();
+  // Admin-only page (middleware also enforces this).
+  if (authConfigured && (session?.user?.role ?? DEFAULT_ROLE) !== "admin") {
+    redirect("/dashboard");
+  }
+  const users = await getAppUsers();
 
   return (
     <div className="pb-10">
@@ -36,24 +44,7 @@ export default async function SettingsPage() {
               <span className="font-medium">@{ALLOWED_DOMAIN}</span>
             </span>
           </div>
-          {session?.user && (
-            <Row k="Signed in as" v={session.user.email ?? session.user.name ?? "—"} />
-          )}
-          <div className="mt-4 mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Reviewers &amp; agents ({agents.length})
-          </div>
-          <div className="max-h-72 space-y-1 overflow-y-auto">
-            {agents.map((a) => (
-              <div key={a.id} className="flex items-center justify-between rounded-lg px-2 py-1.5 text-sm hover:bg-[var(--muted)]/50">
-                <span>{a.name}</span>
-                <span className="text-xs text-muted-foreground">{a.email}</span>
-              </div>
-            ))}
-          </div>
-          <p className="mt-3 text-[11px] text-muted-foreground">
-            Anyone with a verified @{ALLOWED_DOMAIN} Google account can sign in. Per-user roles
-            (reviewer vs. admin) can be added on top of this list.
-          </p>
+          <UserManagement users={users} currentEmail={session?.user?.email ?? null} />
         </Card>
 
         {/* Scoring configuration */}

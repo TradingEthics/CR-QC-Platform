@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { getAgentLeaderboard, getOverallStats } from "@/lib/queries";
 import { PageHeader, StatCard, ScoreCell, Card } from "@/components/ui";
+import { DateRangeFilter } from "@/components/date-range-filter";
+import { rangeFromSearchParams } from "@/lib/date-range";
 import { fmtScore } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -33,14 +35,26 @@ function Bar({ stats }: { stats: { excellent: number; good: number; average: num
   );
 }
 
-export default async function DashboardPage() {
-  const [board, stats] = await Promise.all([getAgentLeaderboard(), getOverallStats()]);
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ since?: string; until?: string }>;
+}) {
+  const range = rangeFromSearchParams(await searchParams);
+  const [board, stats] = await Promise.all([
+    getAgentLeaderboard(range),
+    getOverallStats(range),
+  ]);
 
   return (
     <div className="pb-10">
       <PageHeader title="Dashboard" subtitle="Agent QC leaderboard across the 13 CR inboxes" />
 
-      <div className="grid grid-cols-2 gap-3 px-6 lg:grid-cols-4">
+      <div className="px-6 pb-1">
+        <DateRangeFilter />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 px-6 pt-3 lg:grid-cols-4">
         <StatCard label="Scored" value={stats.total} />
         <StatCard label="Avg QC" value={fmtScore(stats.avg)} />
         <StatCard label="Pass rate" value={`${stats.total ? Math.round(((stats.total - stats.fail) / stats.total) * 100) : 0}%`} tone="emerald" hint="≥75" />

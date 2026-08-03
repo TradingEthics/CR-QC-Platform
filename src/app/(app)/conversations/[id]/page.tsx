@@ -1,8 +1,10 @@
 import { notFound } from "next/navigation";
 import { ExternalLink } from "lucide-react";
+import { auth } from "@/auth";
 import { getConversationDetail, getScoringCategories } from "@/lib/queries";
 import { PageHeader, ScoreCell, CxChip, Card, Button } from "@/components/ui";
 import { ReviewPanel } from "@/components/review-panel";
+import { canAudit, DEFAULT_ROLE } from "@/lib/rbac";
 import { cn, formatDate } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -16,9 +18,14 @@ const SEVERITY_LABEL: Record<string, string> = {
 
 export default async function ConversationPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [detail, categories] = await Promise.all([getConversationDetail(id), getScoringCategories()]);
+  const [detail, categories, session] = await Promise.all([
+    getConversationDetail(id),
+    getScoringCategories(),
+    auth(),
+  ]);
   if (!detail) notFound();
   const { conversation: c, parts, assessment, errors } = detail;
+  const mayAudit = canAudit(session?.user?.role ?? DEFAULT_ROLE);
 
   return (
     <div className="pb-10">
@@ -107,26 +114,28 @@ export default async function ConversationPage({ params }: { params: Promise<{ i
             </div>
           </Card>
 
-          <ReviewPanel
-            conversationId={c.id}
-            assessmentId={assessment?.id ?? null}
-            originalScore={c.qc_score}
-            alreadyReviewed={c.review_status === "reviewed"}
-            aiErrors={errors.map((e) => ({
-              id: e.id,
-              subtype: e.category?.error_subtype ?? "Error",
-              severity: e.severity,
-              deduction: Number(e.deduction),
-              explanation: e.ai_explanation,
-            }))}
-            categories={categories.map((c) => ({
-              id: c.id,
-              subtype: c.error_subtype ?? c.error_type,
-              section: c.section,
-              severity: c.severity,
-              deduction: Number(c.deduction),
-            }))}
-          />
+          {mayAudit && (
+            <ReviewPanel
+              conversationId={c.id}
+              assessmentId={assessment?.id ?? null}
+              originalScore={c.qc_score}
+              alreadyReviewed={c.review_status === "reviewed"}
+              aiErrors={errors.map((e) => ({
+                id: e.id,
+                subtype: e.category?.error_subtype ?? "Error",
+                severity: e.severity,
+                deduction: Number(e.deduction),
+                explanation: e.ai_explanation,
+              }))}
+              categories={categories.map((c) => ({
+                id: c.id,
+                subtype: c.error_subtype ?? c.error_type,
+                section: c.section,
+                severity: c.severity,
+                deduction: Number(c.deduction),
+              }))}
+            />
+          )}
         </div>
       </div>
     </div>

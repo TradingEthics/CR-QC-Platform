@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { createServerSupabase } from "@/lib/supabase";
+import { auth, authConfigured } from "@/auth";
+import { canAudit, DEFAULT_ROLE } from "@/lib/rbac";
 
 export interface SaveReviewInput {
   conversationId: string;
@@ -18,6 +20,13 @@ export interface SaveReviewInput {
 /** Persist a manual review: records the audit, marks dismissed AI errors,
  *  and writes the final human-adjusted score onto the conversation. */
 export async function saveReview(input: SaveReviewInput) {
+  // Only reviewers/admins may write audits.
+  if (authConfigured) {
+    const session = await auth();
+    if (!canAudit(session?.user?.role ?? DEFAULT_ROLE)) {
+      return { ok: false, error: "Not authorized to submit reviews." as string };
+    }
+  }
   const sb = createServerSupabase();
   const now = new Date().toISOString();
 

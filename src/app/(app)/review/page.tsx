@@ -1,18 +1,44 @@
 import Link from "next/link";
-import { getReviewQueue } from "@/lib/queries";
-import { PageHeader, ScoreCell, CxChip, Card } from "@/components/ui";
-import { formatDate } from "@/lib/utils";
+import { getReviewQueue, getCrAgents } from "@/lib/queries";
+import { PageHeader, ScoreCell, CxChip, BandChip, Card } from "@/components/ui";
+import { AuditFilters } from "@/components/audit-filters";
+import { rangeFromSearchParams } from "@/lib/date-range";
+import { scoreBand, formatDate } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-export default async function ReviewPage() {
-  const queue = await getReviewQueue();
+export default async function ReviewPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ agent?: string; status?: string; since?: string; until?: string }>;
+}) {
+  const sp = await searchParams;
+  const range = rangeFromSearchParams(sp);
+  const status = sp.status === "all" ? "all" : "pending";
+
+  const [queue, agents] = await Promise.all([
+    getReviewQueue({ agentId: sp.agent, range, status }),
+    getCrAgents(),
+  ]);
+  const agentOpts = agents
+    .map((a) => ({ id: a.id, name: a.name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
   return (
     <div className="pb-10">
       <PageHeader
-        title="Review Queue"
-        subtitle={`${queue.length} conversation${queue.length === 1 ? "" : "s"} below 75 — manual audit`}
+        title="Audit Queue"
+        subtitle={
+          status === "pending"
+            ? `${queue.length} conversation${queue.length === 1 ? "" : "s"} pending manual audit`
+            : `${queue.length} conversation${queue.length === 1 ? "" : "s"} in range`
+        }
       />
+
+      <div className="px-6 pb-3">
+        <AuditFilters agents={agentOpts} />
+      </div>
+
       <div className="px-6">
         <Card className="overflow-hidden p-0">
           <table className="w-full text-sm">
@@ -22,6 +48,8 @@ export default async function ReviewPage() {
                 <th className="px-4 py-3 font-medium">Agent</th>
                 <th className="px-4 py-3 text-center font-medium">CX</th>
                 <th className="px-4 py-3 text-center font-medium">QC</th>
+                <th className="px-4 py-3 text-center font-medium">Band</th>
+                <th className="px-4 py-3 text-center font-medium">Status</th>
                 <th className="px-4 py-3 text-center font-medium">Date</th>
               </tr>
             </thead>
@@ -36,13 +64,15 @@ export default async function ReviewPage() {
                   <td className="px-4 py-3 text-muted-foreground">{c.agent_name ?? "—"}</td>
                   <td className="px-4 py-3 text-center"><CxChip cx={c.cx_score} /></td>
                   <td className="px-4 py-3 text-center"><ScoreCell score={c.qc_score} /></td>
+                  <td className="px-4 py-3 text-center"><BandChip band={scoreBand(c.qc_score)} /></td>
+                  <td className="px-4 py-3 text-center text-xs text-muted-foreground">{c.review_status.replace("_", " ")}</td>
                   <td className="px-4 py-3 text-center text-xs text-muted-foreground">{formatDate(c.intercom_created_at)}</td>
                 </tr>
               ))}
               {queue.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
-                    Nothing awaiting review.
+                  <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
+                    No conversations match these filters.
                   </td>
                 </tr>
               )}

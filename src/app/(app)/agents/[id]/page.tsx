@@ -1,34 +1,28 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getAgent, getAgentConversations } from "@/lib/queries";
-import { PageHeader, StatCard, ScoreCell, CxChip, BandChip, Card, Segmented } from "@/components/ui";
+import { PageHeader, StatCard, ScoreCell, CxChip, BandChip, Card } from "@/components/ui";
 import { ScoreTrendChart } from "@/components/charts";
+import { DateRangeFilter } from "@/components/date-range-filter";
+import { rangeFromSearchParams } from "@/lib/date-range";
 import { scoreBand, fmtScore, formatDate } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
-
-const RANGES: Record<string, { label: string; days: number | null }> = {
-  "7d": { label: "Last 7 days", days: 7 },
-  "30d": { label: "Last 30 days", days: 30 },
-  all: { label: "All time", days: null },
-};
 
 export default async function AgentProfile({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ range?: string }>;
+  searchParams: Promise<{ since?: string; until?: string }>;
 }) {
   const { id } = await params;
-  const { range = "7d" } = await searchParams;
-  const sel = RANGES[range] ?? RANGES["7d"];
+  const range = rangeFromSearchParams(await searchParams);
 
   const agent = await getAgent(id);
   if (!agent) notFound();
 
-  const sinceIso = sel.days ? new Date(Date.now() - sel.days * 86400_000).toISOString() : undefined;
-  const convos = await getAgentConversations(id, sinceIso);
+  const convos = await getAgentConversations(id, range);
 
   const scored = convos.filter((c) => c.qc_score !== null);
   const avg = scored.length ? scored.reduce((s, c) => s + (c.qc_score as number), 0) / scored.length : null;
@@ -40,20 +34,14 @@ export default async function AgentProfile({
 
   return (
     <div className="pb-10">
-      <PageHeader
-        title={agent.name}
-        subtitle={agent.email ?? undefined}
-        right={
-          <Segmented
-            options={Object.entries(RANGES).map(([key, r]) => ({ key, label: r.label }))}
-            active={range}
-            hrefFor={(k) => `/agents/${id}?range=${k}`}
-          />
-        }
-      />
+      <PageHeader title={agent.name} subtitle={agent.email ?? undefined} />
 
-      <div className="grid grid-cols-2 gap-3 px-6 lg:grid-cols-4">
-        <StatCard label="Conversations" value={convos.length} hint={sel.label} />
+      <div className="px-6 pb-1">
+        <DateRangeFilter basePath={`/agents/${id}`} />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 px-6 pt-3 lg:grid-cols-4">
+        <StatCard label="Conversations" value={convos.length} />
         <StatCard label="Avg QC" value={fmtScore(avg)} />
         <StatCard label="To audit" value={toAudit} tone={toAudit ? "red" : "default"} hint="<75" />
         <StatCard label="Lowest" value={fmtScore(scored.length ? Math.min(...scored.map((c) => c.qc_score as number)) : null)} />
@@ -100,7 +88,7 @@ export default async function AgentProfile({
               {convos.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
-                    No scored conversations in {sel.label.toLowerCase()}.
+                    No scored conversations in this range.
                   </td>
                 </tr>
               )}

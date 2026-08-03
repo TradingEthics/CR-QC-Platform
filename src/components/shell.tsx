@@ -13,6 +13,7 @@ import {
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme";
 import { signOutAction } from "@/app/actions/auth";
+import { canAccessPath, ROLE_LABEL, type Role, DEFAULT_ROLE } from "@/lib/rbac";
 
 const groups = [
   {
@@ -32,10 +33,14 @@ const groups = [
   },
 ];
 
-type SidebarUser = { name: string | null; email: string | null; image: string | null } | null;
+type SidebarUser = { name: string | null; email: string | null; image: string | null; role: Role } | null;
 
 export function Sidebar({ user }: { user: SidebarUser }) {
   const pathname = usePathname();
+  const role = user?.role ?? DEFAULT_ROLE;
+  const visibleGroups = groups
+    .map((g) => ({ ...g, items: g.items.filter((i) => canAccessPath(role, i.href)) }))
+    .filter((g) => g.items.length > 0);
   const initials = (user?.name ?? user?.email ?? "QC")
     .split(/[\s@.]/)
     .filter(Boolean)
@@ -57,7 +62,7 @@ export function Sidebar({ user }: { user: SidebarUser }) {
         </div>
 
         <div className="space-y-4 px-3 pt-1">
-          {groups.map((g) => (
+          {visibleGroups.map((g) => (
             <div key={g.label}>
               <div className="px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--sidebar-muted)]">
                 {g.label}
@@ -93,7 +98,12 @@ export function Sidebar({ user }: { user: SidebarUser }) {
             {initials || "QC"}
           </div>
           <div className="min-w-0">
-            <div className="truncate text-xs font-medium text-white">{user?.name ?? "QC Reviewer"}</div>
+            <div className="flex items-center gap-1.5">
+              <span className="truncate text-xs font-medium text-white">{user?.name ?? "QC Reviewer"}</span>
+              <span className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white/80">
+                {ROLE_LABEL[role]}
+              </span>
+            </div>
             <div className="truncate text-[10px] text-[var(--sidebar-muted)]">{user?.email ?? "not signed in"}</div>
           </div>
         </div>
