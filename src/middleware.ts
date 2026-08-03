@@ -10,13 +10,13 @@ export default auth((req) => {
     pathname.startsWith("/signin") || pathname.startsWith("/api/auth");
   if (isPublic) return;
 
+  // The cron endpoint authenticates via CRON_SECRET, not a session (see route).
+  if (pathname.startsWith("/api/cron")) return;
+
   // Not signed in → sign-in page.
   if (!req.auth) {
     return Response.redirect(new URL("/signin", req.nextUrl.origin));
   }
-
-  // The cron endpoint authenticates via CRON_SECRET, not a session (see route).
-  if (pathname.startsWith("/api/cron")) return;
 
   // Role gating for app pages.
   const role = req.auth.user?.role ?? DEFAULT_ROLE;

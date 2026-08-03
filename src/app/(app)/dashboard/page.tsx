@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { auth } from "@/auth";
 import { getAgentLeaderboard, getOverallStats } from "@/lib/queries";
 import { PageHeader, StatCard, ScoreCell, Card } from "@/components/ui";
 import { DateRangeFilter } from "@/components/date-range-filter";
+import { RefreshButton } from "@/components/refresh-button";
 import { rangeFromSearchParams } from "@/lib/date-range";
 import { fmtScore } from "@/lib/utils";
 
@@ -41,14 +43,20 @@ export default async function DashboardPage({
   searchParams: Promise<{ since?: string; until?: string }>;
 }) {
   const range = rangeFromSearchParams(await searchParams);
-  const [board, stats] = await Promise.all([
+  const [board, stats, session] = await Promise.all([
     getAgentLeaderboard(range),
     getOverallStats(range),
+    auth(),
   ]);
+  const isAdmin = session?.user?.role === "admin";
 
   return (
     <div className="pb-10">
-      <PageHeader title="Dashboard" subtitle="Agent QC leaderboard across the 13 CR inboxes" />
+      <PageHeader
+        title="Dashboard"
+        subtitle="Agent QC leaderboard across the 13 CR inboxes"
+        right={isAdmin ? <RefreshButton /> : undefined}
+      />
 
       <div className="px-6 pb-1">
         <DateRangeFilter />
