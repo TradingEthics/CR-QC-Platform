@@ -1,5 +1,5 @@
 import { auth } from "@/auth";
-import { Sidebar, Topbar } from "@/components/shell";
+import { AppShell } from "@/components/shell";
 import { DEFAULT_ROLE } from "@/lib/rbac";
 
 export default async function AppLayout({
@@ -15,13 +15,5 @@ export default async function AppLayout({
       }
     : null;
 
-  return (
-    <div className="flex min-h-screen">
-      <Sidebar user={user} />
-      <div className="app-canvas flex min-h-screen flex-1 flex-col overflow-x-hidden">
-        <Topbar />
-        <main className="flex-1">{children}</main>
-      </div>
-    </div>
-  );
+  return <AppShell user={user}>{children}</AppShell>;
 }

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
 import {
   LayoutDashboard,
   Users,
@@ -9,6 +10,8 @@ import {
   ListChecks,
   Settings,
   LogOut,
+  Menu,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme";
@@ -35,7 +38,54 @@ const groups = [
 
 type SidebarUser = { name: string | null; email: string | null; image: string | null; role: Role } | null;
 
-export function Sidebar({ user }: { user: SidebarUser }) {
+/** App shell: manages the responsive sidebar (desktop static, mobile drawer). */
+export function AppShell({ user, children }: { user: SidebarUser; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="flex min-h-screen">
+      {/* Desktop sidebar */}
+      <Sidebar user={user} className="hidden md:flex" />
+
+      {/* Mobile drawer */}
+      {open && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          onClick={() => setOpen(false)}
+          aria-hidden
+        />
+      )}
+      <Sidebar
+        user={user}
+        onNavigate={() => setOpen(false)}
+        className={cn(
+          "fixed inset-y-0 left-0 z-50 flex transition-transform duration-200 md:hidden",
+          open ? "translate-x-0" : "-translate-x-full"
+        )}
+        showClose
+        onClose={() => setOpen(false)}
+      />
+
+      <div className="app-canvas flex min-h-screen flex-1 flex-col overflow-x-hidden">
+        <Topbar onMenu={() => setOpen(true)} />
+        <main className="flex-1">{children}</main>
+      </div>
+    </div>
+  );
+}
+
+export function Sidebar({
+  user,
+  className,
+  onNavigate,
+  showClose,
+  onClose,
+}: {
+  user: SidebarUser;
+  className?: string;
+  onNavigate?: () => void;
+  showClose?: boolean;
+  onClose?: () => void;
+}) {
   const pathname = usePathname();
   const role = user?.role ?? DEFAULT_ROLE;
   const visibleGroups = groups
@@ -49,16 +99,30 @@ export function Sidebar({ user }: { user: SidebarUser }) {
     .join("");
 
   return (
-    <aside className="sidebar-gradient hidden w-64 shrink-0 flex-col justify-between md:flex">
+    <aside
+      className={cn(
+        "sidebar-gradient w-64 shrink-0 flex-col justify-between",
+        className ?? "flex"
+      )}
+    >
       <div>
         <div className="flex items-center gap-2.5 px-5 py-5">
           <div className="grid h-9 w-9 place-items-center rounded-lg bg-black/90 text-sm font-bold text-white">
             FN
           </div>
-          <div>
+          <div className="flex-1">
             <div className="text-sm font-semibold text-white">CR QC Platform</div>
             <div className="text-[11px] text-[var(--sidebar-muted)]">FundedNext</div>
           </div>
+          {showClose && (
+            <button
+              onClick={onClose}
+              aria-label="Close menu"
+              className="rounded-lg p-1 text-[var(--sidebar-foreground)] hover:bg-white/10 hover:text-white"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
         </div>
 
         <div className="space-y-4 px-3 pt-1">
@@ -74,6 +138,7 @@ export function Sidebar({ user }: { user: SidebarUser }) {
                     <Link
                       key={href}
                       href={href}
+                      onClick={onNavigate}
                       className={cn(
                         "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                         active
@@ -120,10 +185,17 @@ export function Sidebar({ user }: { user: SidebarUser }) {
   );
 }
 
-export function Topbar() {
+export function Topbar({ onMenu }: { onMenu?: () => void }) {
   return (
-    <div className="sticky top-0 z-10 flex h-14 items-center justify-between border-b border-[var(--border)] bg-[var(--background)]/70 px-6 backdrop-blur">
-      <div className="text-sm text-muted-foreground md:hidden">CR QC Platform</div>
+    <div className="sticky top-0 z-10 flex h-14 items-center justify-between border-b border-[var(--border)] bg-[var(--background)]/70 px-4 backdrop-blur md:px-6">
+      <button
+        onClick={onMenu}
+        aria-label="Open menu"
+        className="mr-2 rounded-lg p-1.5 text-muted-foreground hover:bg-[var(--muted)] md:hidden"
+      >
+        <Menu className="h-5 w-5" />
+      </button>
+      <div className="text-sm font-medium text-muted-foreground md:hidden">CR QC Platform</div>
       <div className="ml-auto flex items-center gap-2">
         <ThemeToggle />
       </div>
