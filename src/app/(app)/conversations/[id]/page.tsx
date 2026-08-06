@@ -24,8 +24,14 @@ export default async function ConversationPage({ params }: { params: Promise<{ i
     auth(),
   ]);
   if (!detail) notFound();
-  const { conversation: c, parts, assessment, errors } = detail;
+  const { conversation: c, parts, assessment, errors, agentNames } = detail;
   const mayAudit = canAudit(session?.user?.role ?? DEFAULT_ROLE);
+
+  // Split the AI reasoning into bullet points for display.
+  const reasoningBullets = (assessment?.ai_reasoning ?? "")
+    .split(/\n+|(?<=\.)\s+(?=[A-Z(])/)
+    .map((s) => s.replace(/^[-•\s]+/, "").trim())
+    .filter((s) => s.length > 1);
 
   return (
     <div className="pb-10">
@@ -64,7 +70,11 @@ export default async function ConversationPage({ params }: { params: Promise<{ i
                     )}
                   >
                     <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                      {isAgent ? "Agent" : isBot ? "Bot / Fin AI" : "Customer"} · #{p.sequence_order}
+                      {isAgent
+                        ? (p.agent_id && agentNames[p.agent_id]) || "Agent"
+                        : isBot
+                          ? "Bot / Fin AI"
+                          : c.customer_name ?? "Customer"} · #{p.sequence_order}
                     </div>
                     {p.body_text}
                   </div>
@@ -85,8 +95,15 @@ export default async function ConversationPage({ params }: { params: Promise<{ i
               <span>· {c.review_status.replace("_", " ")}</span>
               {assessment?.model_name && <span>· {assessment.model_name}</span>}
             </div>
-            {assessment?.ai_reasoning && (
-              <p className="mt-3 text-sm text-muted-foreground">{assessment.ai_reasoning}</p>
+            {reasoningBullets.length > 0 && (
+              <ul className="mt-3 space-y-1.5 text-sm text-muted-foreground">
+                {reasoningBullets.map((b, i) => (
+                  <li key={i} className="flex gap-2">
+                    <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-current opacity-60" />
+                    <span>{b}</span>
+                  </li>
+                ))}
+              </ul>
             )}
 
             <div className="mt-4 space-y-2">

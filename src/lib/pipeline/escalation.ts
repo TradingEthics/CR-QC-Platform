@@ -27,11 +27,18 @@ const num = (name: string, def: number) => {
   return Number.isFinite(n) ? n : def;
 };
 
+export interface EscalationOptions {
+  /** Confirm a candidate is a GENUINE neglected-history violation (context review).
+   *  Return false to suppress the flag. If omitted, threshold alone decides. */
+  confirmNeglect?: (replyA: string, replyB: string) => Promise<boolean>;
+}
+
 export async function detectEscalationErrors(
   parts: EscalationPart[],
   neglectCat: Category | undefined,
   mismatchCat: Category | undefined,
-  apiKey: string
+  apiKey: string,
+  opts: EscalationOptions = {}
 ): Promise<ErrorRow[]> {
   if (!apiKey) return [];
   const neglectThreshold = num("ESCALATION_NEGLECT_THRESHOLD", 0.9);
@@ -82,21 +89,37 @@ export async function detectEscalationErrors(
     }
     if (best.sim >= neglectThreshold) {
       const dup = agentParts[best.j];
-      errors.push({
-        category_id: neglectCat.id,
-        conversation_part_id: dup.id,
-        severity: neglectCat.severity,
-        deduction: Number(neglectCat.deduction),
-        ai_explanation: `Two different agents sent near-identical replies (similarity ${best.sim.toFixed(
-          2
-        )}) — escalation history not verified. [embedding-detected]`,
-        evidence_quote: (dup.body_text ?? "").slice(0, 300),
-      });
+      const other = agentParts[best.i];
+      // Context review: only count if a genuine violation is confirmed. Similar
+      // wording alone isn't enough — the resolution/context must actually match.
+      let confirmed = true;
+      if (opts.confirmNeglect) {
+        try {
+          confirmed = await opts.confirmNeglect(other.body_text ?? "", dup.body_text ?? "");
+        } catch {
+          confirmed = false; // be conservative if confirmation fails
+        }
+      }
+      if (confirmed) {
+        errors.push({
+          category_id: neglectCat.id,
+          conversation_part_id: dup.id,
+          severity: neglectCat.severity,
+          deduction: Number(neglectCat.deduction),
+          ai_explanation: `Two different agents gave the same resolution (similarity ${best.sim.toFixed(
+            2
+          )}) without verifying escalation history. [embedding + context-confirmed]`,
+          evidence_quote: (dup.body_text ?? "").slice(0, 300),
+        });
+      }
     }
   }
 
   // --- Incorrect Escalation Channel/Team: response doesn't match context ---
-  if (wantMismatch && mismatchCat && customerIdx >= 0) {
+  // A note containing "stuck" indicates a correct escalation (a stuck case), so
+  // never flag a channel/team mismatch in that conversation.
+  const hasStuckNote = parts.some((p) => (p.body_text ?? "").toLowerCase().includes("stuck"));
+  if (wantMismatch && mismatchCat && customerIdx >= 0 && !hasStuckNote) {
     let maxSim = 0;
     let bestPart = agentParts[0];
     for (let a = 0; a < agentParts.length; a++) {

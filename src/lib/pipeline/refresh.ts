@@ -183,6 +183,68 @@ export async function runRefresh(opts: RefreshOptions = {}): Promise<RefreshResu
   const canDeepseek = Boolean(orKey);
   let geminiExhausted = !canGemini;
 
+  // Context-review confirmation for a Neglected-Escalation-History candidate.
+  // Similar wording alone isn't enough — the model checks it's a real violation.
+  const jsonFrom = (t: string): Record<string, unknown> => {
+    let s = t.trim();
+    if (s.startsWith("```")) s = s.replace(/^```[a-z]*\n?/, "").replace(/```$/, "").trim();
+    try {
+      return JSON.parse(s) as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  };
+  const confirmNeglect = async (a: string, b: string): Promise<boolean> => {
+    const prompt =
+      `Two DIFFERENT support agents replied in the SAME customer conversation.\n\n` +
+      `Agent 1 reply:\n"""${a.slice(0, 1500)}"""\n\nAgent 2 reply:\n"""${b.slice(0, 1500)}"""\n\n` +
+      `QC question: Did Agent 2 essentially REPEAT THE SAME RESOLUTION as Agent 1 WITHOUT verifying the ` +
+      `escalation/conversation history — a genuine "Neglected Escalation History" violation? If the replies ` +
+      `address different issues, or repeating was appropriate, it is NOT a violation.\n\n` +
+      `Respond with ONLY JSON: {"violation": true|false}.`;
+    try {
+      if (canDeepseek) {
+        const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${orKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: orModel,
+            messages: [{ role: "user", content: prompt }],
+            temperature: 0,
+            response_format: { type: "json_object" },
+          }),
+        });
+        if (res.ok) {
+          const d = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+          return jsonFrom(d.choices?.[0]?.message?.content ?? "{}").violation === true;
+        }
+      }
+      if (geminiKey) {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ role: "user", parts: [{ text: prompt }] }],
+              generationConfig: { responseMimeType: "application/json", temperature: 0 },
+            }),
+          }
+        );
+        if (res.ok) {
+          const d = (await res.json()) as {
+            candidates?: { content?: { parts?: { text?: string }[] } }[];
+          };
+          const t = d.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
+          return jsonFrom(t).violation === true;
+        }
+      }
+    } catch {
+      /* fall through */
+    }
+    return false; // conservative: unconfirmed → don't flag
+  };
+
   for (const conv of toScore ?? []) {
     if (Date.now() - t0 > budgetMs) break;
     try {
@@ -248,7 +310,8 @@ export async function runRefresh(opts: RefreshOptions = {}): Promise<RefreshResu
             partsArr,
             neglectCat,
             mismatchCat,
-            geminiKey
+            geminiKey,
+            { confirmNeglect }
           );
           const seenCats = new Set(assessment.error_rows.map((r) => r.category_id));
           for (const e of escErrors) {

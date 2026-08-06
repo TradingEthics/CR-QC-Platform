@@ -137,6 +137,7 @@ export interface ConversationDetail {
   parts: ConversationPart[];
   assessment: QcAssessment | null;
   errors: (QcError & { category: ScoringCategory | null })[];
+  agentNames: Record<string, string>;
 }
 
 export async function getConversationDetail(
@@ -157,6 +158,20 @@ export async function getConversationDetail(
     .select("id, conversation_id, author_type, author_id, agent_id, body_text, sequence_order")
     .eq("conversation_id", convId)
     .order("sequence_order");
+
+  // Resolve agent_id -> display name for the thread labels.
+  const agentIds = [
+    ...new Set(
+      ((parts ?? []) as ConversationPart[])
+        .filter((p) => p.author_type === "admin" && p.agent_id)
+        .map((p) => p.agent_id as string)
+    ),
+  ];
+  const agentNames: Record<string, string> = {};
+  if (agentIds.length) {
+    const { data: ags } = await sb.from("agents").select("id, name").in("id", agentIds);
+    for (const a of ags ?? []) agentNames[a.id as string] = a.name as string;
+  }
 
   const { data: assessment } = await sb
     .from("qc_assessments")
@@ -185,6 +200,7 @@ export async function getConversationDetail(
     parts: (parts ?? []) as ConversationPart[],
     assessment: (assessment as QcAssessment) ?? null,
     errors,
+    agentNames,
   };
 }
 
