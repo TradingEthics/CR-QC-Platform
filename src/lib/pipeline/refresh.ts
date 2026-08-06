@@ -9,6 +9,7 @@ import { upsertAgents, upsertInboxes, upsertConversation } from "./ingest";
 import {
   type Category,
   type AiError,
+  type ErrorRow,
   buildSystemPrompt,
   buildResponseSchema,
   buildConversationText,
@@ -19,6 +20,10 @@ import {
   scoreOpenRouter,
   GeminiQuotaError,
 } from "./scoring";
+import { detectEscalationErrors } from "./escalation";
+
+const NEGLECT_SUBTYPE = "Neglected Escalation History Verification";
+const MISMATCH_SUBTYPE = "Incorrect Escalation Channel/Team Assignment";
 
 export interface RefreshOptions {
   ingest?: boolean;       // default true
@@ -148,6 +153,17 @@ export async function runRefresh(opts: RefreshOptions = {}): Promise<RefreshResu
   const systemPrompt = buildSystemPrompt(categories);
   const schema = buildResponseSchema(categories);
 
+  // Escalation categories detected via embeddings (own category rows, even
+  // though excluded from the LLM prompt as ai_scoreable=false).
+  const { data: escData } = await sb
+    .from("scoring_categories")
+    .select("id, section, severity, deduction, error_type, error_subtype, description, ai_scoreable, sort_order")
+    .eq("is_active", true)
+    .in("error_subtype", [NEGLECT_SUBTYPE, MISMATCH_SUBTYPE]);
+  const escCats = (escData ?? []) as Category[];
+  const neglectCat = escCats.find((c) => c.error_subtype === NEGLECT_SUBTYPE);
+  const mismatchCat = escCats.find((c) => c.error_subtype === MISMATCH_SUBTYPE);
+
   // Agent names for thread labels.
   const { data: agentRows } = await sb.from("agents").select("id, name");
   const agentNameById = new Map<string, string>();
@@ -224,6 +240,30 @@ export async function runRefresh(opts: RefreshOptions = {}): Promise<RefreshResu
         partsArr,
         partIdBySeq
       );
+
+      // Embedding-based escalation detection (uses the Gemini key; separate quota).
+      if (geminiKey && (neglectCat || mismatchCat)) {
+        try {
+          const escErrors: ErrorRow[] = await detectEscalationErrors(
+            partsArr,
+            neglectCat,
+            mismatchCat,
+            geminiKey
+          );
+          const seenCats = new Set(assessment.error_rows.map((r) => r.category_id));
+          for (const e of escErrors) {
+            if (!seenCats.has(e.category_id)) {
+              assessment.error_rows.push(e);
+              seenCats.add(e.category_id);
+            }
+          }
+          const total = assessment.error_rows.reduce((s, r) => s + Number(r.deduction), 0);
+          assessment.total_deductions = Math.round(total * 100) / 100;
+          assessment.final_score = Math.max(0, Math.round((100 - total) * 100) / 100);
+        } catch {
+          // ignore — escalation detection is best-effort
+        }
+      }
 
       // Persist assessment + errors, then update the conversation.
       const { data: aRow, error: aErr } = await sb
