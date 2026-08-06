@@ -34,8 +34,8 @@ export function canAccessPath(role: Role | undefined, pathname: string): boolean
   if (r === "admin") return true;
 
   if (r === "reviewer") {
-    // Everything except admin-only settings / user management.
-    return !pathname.startsWith("/settings");
+    // Everything except admin-only settings / access control.
+    return !pathname.startsWith("/settings") && !pathname.startsWith("/access");
   }
 
   // agent: read-only viewing surfaces only.

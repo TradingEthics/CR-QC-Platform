@@ -1,9 +1,7 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
-import { CheckCircle2, XCircle } from "lucide-react";
-import { authConfigured, ALLOWED_DOMAIN, auth } from "@/auth";
-import { getAppUsers } from "@/lib/queries";
+import { authConfigured, auth } from "@/auth";
 import { PageHeader, Card } from "@/components/ui";
-import { UserManagement } from "@/components/user-management";
 import { DEFAULT_ROLE } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
@@ -23,28 +21,24 @@ export default async function SettingsPage() {
   if (authConfigured && (session?.user?.role ?? DEFAULT_ROLE) !== "admin") {
     redirect("/dashboard");
   }
-  const users = await getAppUsers();
 
   return (
     <div className="pb-10">
-      <PageHeader title="Settings" subtitle="Access management and platform configuration" />
+      <PageHeader title="Settings" subtitle="Platform configuration" />
 
       <div className="grid gap-4 px-6 lg:grid-cols-2">
-        {/* User Access Management */}
+        {/* Access pointer */}
         <Card className="p-5">
-          <div className="mb-3 text-sm font-semibold">User Access Management</div>
-          <div className="mb-4 flex items-center gap-2 rounded-lg border border-[var(--border)] p-3 text-sm">
-            {authConfigured ? (
-              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-            ) : (
-              <XCircle className="h-4 w-4 text-amber-500" />
-            )}
-            <span>
-              Google OAuth {authConfigured ? "enabled" : "not configured"} — access restricted to{" "}
-              <span className="font-medium">@{ALLOWED_DOMAIN}</span>
-            </span>
-          </div>
-          <UserManagement users={users} currentEmail={session?.user?.email ?? null} />
+          <div className="mb-3 text-sm font-semibold">Access &amp; Roles</div>
+          <p className="text-sm text-muted-foreground">
+            User access and role assignment moved to its own section.
+          </p>
+          <Link
+            href="/access"
+            className="mt-3 inline-flex items-center rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
+          >
+            Open Access Control
+          </Link>
         </Card>
 
         {/* Scoring configuration */}

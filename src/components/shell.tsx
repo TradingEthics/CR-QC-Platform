@@ -2,16 +2,18 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
   Users,
   ClipboardCheck,
   ListChecks,
   Settings,
+  Shield,
   LogOut,
   Menu,
   X,
+  PanelLeft,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme";
@@ -31,6 +33,7 @@ const groups = [
     label: "Configuration",
     items: [
       { href: "/scorecard", label: "Scorecard", icon: ListChecks },
+      { href: "/access", label: "Access Control", icon: Shield },
       { href: "/settings", label: "Settings", icon: Settings },
     ],
   },
@@ -38,35 +41,52 @@ const groups = [
 
 type SidebarUser = { name: string | null; email: string | null; image: string | null; role: Role } | null;
 
-/** App shell: manages the responsive sidebar (desktop static, mobile drawer). */
+/** App shell: manages the responsive sidebar (desktop collapse + mobile drawer). */
 export function AppShell({ user, children }: { user: SidebarUser; children: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [desktopOpen, setDesktopOpen] = useState(true);
+
+  // Restore the desktop collapse preference.
+  useEffect(() => {
+    const saved = localStorage.getItem("sidebarOpen");
+    if (saved !== null) setDesktopOpen(saved === "1");
+  }, []);
+
+  const toggleDesktop = () =>
+    setDesktopOpen((v) => {
+      localStorage.setItem("sidebarOpen", v ? "0" : "1");
+      return !v;
+    });
+
   return (
     <div className="flex min-h-screen">
-      {/* Desktop sidebar */}
-      <Sidebar user={user} className="hidden md:flex" />
+      {/* Desktop sidebar (collapsible) */}
+      <Sidebar user={user} className={cn("hidden", desktopOpen && "md:flex")} />
 
       {/* Mobile drawer */}
-      {open && (
+      {mobileOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/50 md:hidden"
-          onClick={() => setOpen(false)}
+          onClick={() => setMobileOpen(false)}
           aria-hidden
         />
       )}
       <Sidebar
         user={user}
-        onNavigate={() => setOpen(false)}
+        onNavigate={() => setMobileOpen(false)}
         className={cn(
           "fixed inset-y-0 left-0 z-50 flex transition-transform duration-200 md:hidden",
-          open ? "translate-x-0" : "-translate-x-full"
+          mobileOpen ? "translate-x-0" : "-translate-x-full"
         )}
         showClose
-        onClose={() => setOpen(false)}
+        onClose={() => setMobileOpen(false)}
       />
 
       <div className="app-canvas flex min-h-screen flex-1 flex-col overflow-x-hidden">
-        <Topbar onMenu={() => setOpen(true)} />
+        <Topbar
+          onMenu={() => setMobileOpen(true)}
+          onToggleDesktop={toggleDesktop}
+        />
         <main className="flex-1">{children}</main>
       </div>
     </div>
@@ -185,15 +205,30 @@ export function Sidebar({
   );
 }
 
-export function Topbar({ onMenu }: { onMenu?: () => void }) {
+export function Topbar({
+  onMenu,
+  onToggleDesktop,
+}: {
+  onMenu?: () => void;
+  onToggleDesktop?: () => void;
+}) {
   return (
     <div className="sticky top-0 z-10 flex h-14 items-center justify-between border-b border-[var(--border)] bg-[var(--background)]/70 px-4 backdrop-blur md:px-6">
+      {/* Mobile: open drawer */}
       <button
         onClick={onMenu}
         aria-label="Open menu"
         className="mr-2 rounded-lg p-1.5 text-muted-foreground hover:bg-[var(--muted)] md:hidden"
       >
         <Menu className="h-5 w-5" />
+      </button>
+      {/* Desktop: collapse/expand sidebar */}
+      <button
+        onClick={onToggleDesktop}
+        aria-label="Toggle sidebar"
+        className="mr-2 hidden rounded-lg p-1.5 text-muted-foreground hover:bg-[var(--muted)] md:inline-flex"
+      >
+        <PanelLeft className="h-5 w-5" />
       </button>
       <div className="text-sm font-medium text-muted-foreground md:hidden">CR QC Platform</div>
       <div className="ml-auto flex items-center gap-2">
