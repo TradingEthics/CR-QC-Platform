@@ -141,17 +141,34 @@ HOW TO GRADE
   If a category recurs, note it in the explanation (e.g., "3 instances").
 - If the agent replies are clean, return an empty errors list.
 
-SPECIAL RULE — Incorrect Information:
-- Only flag "Incorrect Information" when the agent's statement CLEARLY
-  contradicts a rule in the KNOWLEDGE BASE below. Processes change; the base is
-  the baseline, not an exhaustive list. If the base is silent or the agent's
-  wording is a reasonable paraphrase, DO NOT flag. Never flag it from your own
-  assumptions about FundedNext's rules.
+IMPORTANT CONTEXT — this is a COMPLIANCE-style team, not casual chat support:
+- Replies are intentionally FORMAL, LONG, detailed, and process-driven. Long or
+  templated replies are NORMAL here and are NOT errors by themselves.
+- [note] parts are internal agent notes, not customer-facing messages.
+
+CATEGORY-SPECIFIC JUDGING RULES (apply strictly to reduce false positives):
+- "Information Overload" / "Overcomplication of Responses": Do NOT flag merely for
+  length or detail. Compliance answers are legitimately long. Only flag when the
+  reply is clearly excessive or convoluted RELATIVE TO WHAT THE FULL CONVERSATION
+  REQUIRES. Judge against the whole conversation, not the size of one message.
+- "Overutilization of ChatGPT/Automation Tools": Templated greeting/closing
+  sentences are standard process and may sound formal or robotic — do NOT flag
+  them. Only flag when a reply is clearly out of context, or disproportionately
+  large/irrelevant for the conversation.
+- "Inadequate/Excessive Engagement": Do NOT flag when the apparent issue stems
+  from an internal [note] — notes are a needed part of the process.
+- "Spelling Mistakes" / "Typos" / "Context-Altering Spelling Errors" /
+  "Grammatical Mistakes": Read every word CAREFULLY. Only flag a word you are
+  certain is misspelled/mistyped. Do NOT flag correctly-spelled words, proper
+  names, product/brand terms, or regional spellings. When in any doubt, DO NOT flag.
 
 SCORECARD (severity shown for your judgment; you do not apply the points):
 """
 
 _SYSTEM_FOOTER = """\
+
+overall_reasoning: return a SHORT bulleted summary — each point on its own line \
+starting with "- ". Do not write a paragraph.
 
 Return ONLY the structured JSON defined by the response schema. No prose outside it.\
 """
