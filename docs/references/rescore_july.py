@@ -62,10 +62,10 @@ def main() -> None:
 
     scored = failed = gem = deep = 0
     for i, conv in enumerate(rows):
-        parts = sw.fetch_parts(supabase, conv["id"])
-        thread = sp.build_conversation_text(parts, agent_names)
-        user_prompt = sp.build_user_prompt(thread, conv.get("subject"))
         try:
+            parts = sw.fetch_parts(supabase, conv["id"])
+            thread = sp.build_conversation_text(parts, agent_names)
+            user_prompt = sp.build_user_prompt(thread, conv.get("subject"))
             if provider == "gemini":
                 try:
                     result = sw.score_sync(gclient, gemodel, system_prompt, schema, user_prompt)
