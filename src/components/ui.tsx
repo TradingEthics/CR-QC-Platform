@@ -64,7 +64,7 @@ export function PageHeader({
   return (
     <div className="flex flex-wrap items-end justify-between gap-4 px-6 pb-4 pt-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+        <h1 className="font-heading text-2xl font-semibold tracking-tight">{title}</h1>
         {subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}
       </div>
       {right}
@@ -95,7 +95,7 @@ export function StatCard({
   return (
     <Card className="p-4">
       <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className={cn("mt-1 text-2xl font-semibold", toneCls)}>{value}</div>
+      <div className={cn("stat-value mt-1 text-2xl", toneCls)}>{value}</div>
       {hint && <div className="mt-0.5 text-xs text-muted-foreground">{hint}</div>}
     </Card>
   );

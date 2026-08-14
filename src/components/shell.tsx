@@ -134,7 +134,7 @@ export function Sidebar({
             FN
           </div>
           <div className="flex-1">
-            <div className="text-sm font-semibold text-white">CR QC Platform</div>
+            <div className="font-heading text-sm font-semibold text-white">CR QC Platform</div>
             <div className="text-[11px] text-[var(--sidebar-muted)]">FundedNext</div>
           </div>
           {showClose && (
