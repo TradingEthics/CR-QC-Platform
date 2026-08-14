@@ -43,6 +43,7 @@ type SidebarUser = { name: string | null; email: string | null; image: string | 
 
 /** App shell: manages the responsive sidebar (desktop collapse + mobile drawer). */
 export function AppShell({ user, children }: { user: SidebarUser; children: React.ReactNode }) {
+  const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [desktopOpen, setDesktopOpen] = useState(true);
 
@@ -87,7 +88,9 @@ export function AppShell({ user, children }: { user: SidebarUser; children: Reac
           onMenu={() => setMobileOpen(true)}
           onToggleDesktop={toggleDesktop}
         />
-        <main className="flex-1">{children}</main>
+        <main key={pathname} className="page-fade flex-1">
+          {children}
+        </main>
       </div>
     </div>
   );

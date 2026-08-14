@@ -46,6 +46,11 @@ export function Card({ className, glass = true, ...props }: React.HTMLAttributes
   );
 }
 
+/* ---------------- Skeleton ---------------- */
+export function Skeleton({ className }: { className?: string }) {
+  return <div className={cn("skeleton rounded-md", className)} />;
+}
+
 /* ---------------- Page header ---------------- */
 export function PageHeader({
   title,
