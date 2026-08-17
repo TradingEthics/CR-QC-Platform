@@ -155,7 +155,7 @@ export async function getConversationDetail(
 
   const { data: parts } = await sb
     .from("conversation_parts")
-    .select("id, conversation_id, author_type, author_id, agent_id, body_text, sequence_order")
+    .select("id, conversation_id, author_type, author_id, agent_id, body_text, part_type, sequence_order")
     .eq("conversation_id", convId)
     .order("sequence_order");
 

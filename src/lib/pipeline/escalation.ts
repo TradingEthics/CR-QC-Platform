@@ -18,6 +18,7 @@ export interface EscalationPart {
   author_type: "admin" | "bot" | "user";
   author_id: string | null;
   body_text: string | null;
+  part_type?: string | null;
   sequence_order: number;
 }
 
@@ -46,7 +47,10 @@ export async function detectEscalationErrors(
   const mismatchEnabled = (process.env.ESCALATION_MISMATCH_ENABLED || "false") === "true";
 
   const agentParts = parts.filter(
-    (p) => p.author_type === "admin" && (p.body_text ?? "").trim().length > 20
+    (p) =>
+      p.author_type === "admin" &&
+      p.part_type !== "note" &&
+      (p.body_text ?? "").trim().length > 20
   );
   const distinctAgents = new Set(agentParts.map((p) => p.author_id ?? "?"));
   const customerText = parts

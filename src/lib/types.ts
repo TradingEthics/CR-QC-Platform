@@ -80,6 +80,7 @@ export interface ConversationPart {
   author_id: string | null;
   agent_id: string | null;
   body_text: string | null;
+  part_type: string | null;
   sequence_order: number;
 }
 

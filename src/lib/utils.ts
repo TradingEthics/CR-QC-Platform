@@ -48,3 +48,15 @@ export function formatDate(iso: string | null | undefined): string {
 export function fmtScore(score: number | null | undefined): string {
   return score === null || score === undefined ? "—" : score.toFixed(1);
 }
+
+/** Recover paragraph structure from Intercom bodies, which mark paragraph
+ *  breaks with a zero-width space (U+200B) rather than newlines. */
+export function cleanBody(text: string | null | undefined): string {
+  if (!text) return "";
+  return text
+    .replace(/\uFEFF/g, "")
+    .replace(/[ \t]*\u200B[ \t]*/g, "\n\n")
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}

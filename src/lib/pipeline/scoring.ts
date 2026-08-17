@@ -74,12 +74,18 @@ CATEGORY-SPECIFIC JUDGING RULES (apply strictly to reduce false positives):
   length or detail. Compliance answers are legitimately long. Only flag when the
   reply is clearly excessive or convoluted RELATIVE TO WHAT THE FULL CONVERSATION
   REQUIRES. Judge against the whole conversation, not the size of one message.
-- "Overutilization of ChatGPT/Automation Tools": Templated greeting/closing
-  sentences are standard process and may sound formal or robotic — do NOT flag
-  them. Only flag when a reply is clearly out of context, or disproportionately
-  large/irrelevant for the conversation.
+- "Overutilization of ChatGPT/Automation Tools": Formal, firm, templated, or
+  "robotic"-sounding phrasing is the STANDARD compliance-team process and is NOT
+  an error. Only flag when the reply is clearly generic boilerplate that IGNORES
+  the customer's actual case/question. If the reply DOES address the customer's
+  specific situation (even in a formal or templated tone), DO NOT flag it.
+- "Missing Information" / "Missing Minimal Information": When the agent presents
+  the available OPTIONS or conditions (e.g. reward-ratio choices, add-on options,
+  next-step choices), that IS providing the required context — per protocol the
+  options ARE the explanation. DO NOT flag missing information for presenting
+  options. Only flag when genuinely critical information is omitted.
 - "Inadequate/Excessive Engagement": Do NOT flag when the apparent issue stems
-  from an internal [note] — notes are a needed part of the process.
+  from an internal note — notes are a needed part of the process.
 - "Spelling Mistakes" / "Typos" / "Context-Altering Spelling Errors" /
   "Grammatical Mistakes": Read every word CAREFULLY. Only flag a word you are
   certain is misspelled/mistyped. Do NOT flag correctly-spelled words, proper
@@ -150,6 +156,7 @@ export function buildConversationText(
     author_type: ParsedPart["author_type"];
     author_id: string | null;
     body_text: string | null;
+    part_type?: string | null;
     sequence_order: number;
   }[],
   agentNameById: Map<string, string>
@@ -159,6 +166,8 @@ export function buildConversationText(
   for (const p of ordered) {
     const body = (p.body_text ?? "").trim();
     if (!body) continue;
+    // Internal notes are hidden from the customer and must not be graded.
+    if (p.part_type === "note") continue;
     let label: string;
     if (p.author_type === "user") label = "[CUSTOMER]";
     else if (p.author_type === "bot") label = "[BOT / FIN AI]";

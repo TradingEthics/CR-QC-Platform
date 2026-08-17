@@ -5,7 +5,7 @@ import { getConversationDetail, getScoringCategories } from "@/lib/queries";
 import { PageHeader, ScoreCell, CxChip, Card, Button } from "@/components/ui";
 import { ReviewPanel } from "@/components/review-panel";
 import { canAudit, DEFAULT_ROLE } from "@/lib/rbac";
-import { cn, formatDate } from "@/lib/utils";
+import { cn, formatDate, cleanBody } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -55,8 +55,25 @@ export default async function ConversationPage({ params }: { params: Promise<{ i
           {parts
             .filter((p) => (p.body_text ?? "").trim())
             .map((p) => {
-              const isAgent = p.author_type === "admin";
+              const isNote = p.part_type === "note";
+              const isAgent = p.author_type === "admin" && !isNote;
               const isBot = p.author_type === "bot";
+
+              // Internal note: hidden from the customer, not graded — shown as a
+              // centered muted card so reviewers see context without confusion.
+              if (isNote) {
+                return (
+                  <div key={p.id} className="flex justify-center">
+                    <div className="max-w-[85%] whitespace-pre-wrap rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--muted)]/50 px-4 py-2 text-xs text-muted-foreground">
+                      <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                        Internal note · {(p.agent_id && agentNames[p.agent_id]) || "Agent"} · not graded
+                      </div>
+                      {cleanBody(p.body_text)}
+                    </div>
+                  </div>
+                );
+              }
+
               return (
                 <div key={p.id} className={cn("flex", isAgent ? "justify-end" : "justify-start")}>
                   <div
@@ -76,7 +93,7 @@ export default async function ConversationPage({ params }: { params: Promise<{ i
                           ? "Bot / Fin AI"
                           : c.customer_name ?? "Customer"} · #{p.sequence_order}
                     </div>
-                    {p.body_text}
+                    {cleanBody(p.body_text)}
                   </div>
                 </div>
               );

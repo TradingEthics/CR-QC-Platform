@@ -151,12 +151,18 @@ CATEGORY-SPECIFIC JUDGING RULES (apply strictly to reduce false positives):
   length or detail. Compliance answers are legitimately long. Only flag when the
   reply is clearly excessive or convoluted RELATIVE TO WHAT THE FULL CONVERSATION
   REQUIRES. Judge against the whole conversation, not the size of one message.
-- "Overutilization of ChatGPT/Automation Tools": Templated greeting/closing
-  sentences are standard process and may sound formal or robotic — do NOT flag
-  them. Only flag when a reply is clearly out of context, or disproportionately
-  large/irrelevant for the conversation.
+- "Overutilization of ChatGPT/Automation Tools": Formal, firm, templated, or
+  "robotic"-sounding phrasing is the STANDARD compliance-team process and is NOT
+  an error. Only flag when the reply is clearly generic boilerplate that IGNORES
+  the customer's actual case/question. If the reply DOES address the customer's
+  specific situation (even in a formal or templated tone), DO NOT flag it.
+- "Missing Information" / "Missing Minimal Information": When the agent presents
+  the available OPTIONS or conditions to the customer (e.g. reward-ratio choices,
+  add-on options, next-step choices), that IS providing the required context —
+  per protocol the options ARE the explanation. DO NOT flag missing information
+  for presenting options. Only flag when genuinely critical information is omitted.
 - "Inadequate/Excessive Engagement": Do NOT flag when the apparent issue stems
-  from an internal [note] — notes are a needed part of the process.
+  from an internal note — notes are a needed part of the process.
 - "Spelling Mistakes" / "Typos" / "Context-Altering Spelling Errors" /
   "Grammatical Mistakes": Read every word CAREFULLY. Only flag a word you are
   certain is misspelled/mistyped. Do NOT flag correctly-spelled words, proper
@@ -218,6 +224,10 @@ def build_conversation_text(parts: list[dict], agent_name_by_id: dict[str, str])
     for p in ordered:
         body = (p.get("body_text") or "").strip()
         if not body:
+            continue
+        # Internal notes (forwarded/follow-up notes) are hidden from the customer
+        # and must NOT be graded — exclude them from the thread entirely.
+        if p.get("part_type") == "note":
             continue
         atype = p.get("author_type")
         seq = p.get("sequence_order", 0)

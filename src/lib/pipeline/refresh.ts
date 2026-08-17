@@ -250,7 +250,7 @@ export async function runRefresh(opts: RefreshOptions = {}): Promise<RefreshResu
     try {
       const { data: parts } = await sb
         .from("conversation_parts")
-        .select("id, author_type, author_id, body_text, sequence_order")
+        .select("id, author_type, author_id, body_text, part_type, sequence_order")
         .eq("conversation_id", conv.id as string)
         .order("sequence_order");
       const partsArr = (parts ?? []) as {
@@ -258,6 +258,7 @@ export async function runRefresh(opts: RefreshOptions = {}): Promise<RefreshResu
         author_type: "admin" | "bot" | "user";
         author_id: string | null;
         body_text: string | null;
+        part_type: string | null;
         sequence_order: number;
       }[];
       const partIdBySeq = new Map<number, string>();
@@ -268,6 +269,7 @@ export async function runRefresh(opts: RefreshOptions = {}): Promise<RefreshResu
           author_type: p.author_type,
           author_id: p.author_id,
           body_text: p.body_text,
+          part_type: p.part_type,
           sequence_order: p.sequence_order,
         })),
         agentNameById
