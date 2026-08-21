@@ -14,7 +14,8 @@ export default async function ReviewPage({
 }) {
   const sp = await searchParams;
   const range = rangeFromSearchParams(sp);
-  const status = sp.status === "all" ? "all" : "pending";
+  const status: "pending" | "reviewed" | "all" =
+    sp.status === "all" ? "all" : sp.status === "reviewed" ? "reviewed" : "pending";
 
   const [queue, agents] = await Promise.all([
     getReviewQueue({ agentId: sp.agent, range, status }),
@@ -31,7 +32,9 @@ export default async function ReviewPage({
         subtitle={
           status === "pending"
             ? `${queue.length} conversation${queue.length === 1 ? "" : "s"} pending manual audit`
-            : `${queue.length} conversation${queue.length === 1 ? "" : "s"} in range`
+            : status === "reviewed"
+              ? `${queue.length} manually reviewed conversation${queue.length === 1 ? "" : "s"}`
+              : `${queue.length} conversation${queue.length === 1 ? "" : "s"} in range`
         }
       />
 

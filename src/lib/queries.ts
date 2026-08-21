@@ -144,14 +144,17 @@ export async function getConversationDetail(
   convId: string
 ): Promise<ConversationDetail | null> {
   const sb = createServerSupabase();
+  // Accept either the internal UUID or the Intercom Chat ID (numeric).
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(convId);
   const { data: conv } = await sb
     .from("conversations")
     .select(
       "id, intercom_id, inbox_id, agent_id, cx_score, customer_name, customer_email, subject, qc_score, review_status, intercom_created_at, admin_reply_count, intercom_url"
     )
-    .eq("id", convId)
+    .eq(isUuid ? "id" : "intercom_id", convId)
     .maybeSingle();
   if (!conv) return null;
+  convId = conv.id as string;
 
   const { data: parts } = await sb
     .from("conversation_parts")
@@ -207,8 +210,9 @@ export async function getConversationDetail(
 export interface AuditQueueFilters {
   agentId?: string;
   range?: DateRange;
-  /** "pending" (default) shows pending_review only; "all" shows every scored convo. */
-  status?: "pending" | "all";
+  /** "pending" (default) = pending_review; "reviewed" = manually reviewed;
+   *  "all" = every scored conversation. */
+  status?: "pending" | "reviewed" | "all";
 }
 
 /** Conversations for the audit queue, lowest QC first, filtered by agent/date/status. */
@@ -233,8 +237,11 @@ export async function getReviewQueue(
     .in("agent_id", scopeIds)
     .not("qc_score", "is", null);
 
-  if ((filters?.status ?? "pending") === "pending") {
+  const status = filters?.status ?? "pending";
+  if (status === "pending") {
     q = q.eq("review_status", "pending_review");
+  } else if (status === "reviewed") {
+    q = q.eq("review_status", "reviewed");
   }
   if (filters?.range?.since) q = q.gte("intercom_created_at", filters.range.since);
   if (filters?.range?.until) q = q.lte("intercom_created_at", filters.range.until);

@@ -33,6 +33,20 @@ export default async function ConversationPage({ params }: { params: Promise<{ i
     .map((s) => s.replace(/^[-•\s]+/, "").trim())
     .filter((s) => s.length > 1);
 
+  // Agents who replied (excludes bots + internal notes). The conversation is
+  // attributed to / scored under the primary replier (conversation.agent_id).
+  const participantIds = [
+    ...new Set(
+      parts
+        .filter((p) => p.author_type === "admin" && p.part_type !== "note" && p.agent_id)
+        .map((p) => p.agent_id as string)
+    ),
+  ];
+  const scoredAgentName = (c.agent_id && agentNames[c.agent_id]) || "—";
+  const otherAgents = participantIds
+    .filter((id) => id !== c.agent_id)
+    .map((id) => agentNames[id] || "Agent");
+
   return (
     <div className="pb-10">
       <PageHeader
@@ -100,8 +114,34 @@ export default async function ConversationPage({ params }: { params: Promise<{ i
             })}
         </Card>
 
-        {/* Right column: assessment + review */}
+        {/* Right column: meta + assessment + review */}
         <div className="space-y-4">
+          <Card className="p-4">
+            <div className="mb-2 text-sm font-medium">Conversation</div>
+            <div className="space-y-1.5 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">Chat ID</span>
+                <span className="font-mono">{c.intercom_id}</span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">Scored agent</span>
+                <span className="font-medium">{scoredAgentName}</span>
+              </div>
+              {otherAgents.length > 0 && (
+                <div className="flex items-start justify-between gap-2">
+                  <span className="text-muted-foreground">Also replied</span>
+                  <span className="text-right text-muted-foreground">{otherAgents.join(", ")}</span>
+                </div>
+              )}
+            </div>
+            {otherAgents.length > 0 && (
+              <p className="mt-2 border-t border-[var(--border)] pt-2 text-[11px] text-muted-foreground">
+                This conversation involves multiple agents. The QC score covers all
+                customer-facing replies and is attributed to the primary replier.
+              </p>
+            )}
+          </Card>
+
           <Card className="p-4">
             <div className="flex items-center justify-between">
               <div className="text-sm font-medium">AI QC Assessment</div>

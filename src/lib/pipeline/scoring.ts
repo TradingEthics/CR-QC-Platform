@@ -64,10 +64,25 @@ HOW TO GRADE
   If a category recurs, note it in the explanation (e.g., "3 instances").
 - If the agent replies are clean, return an empty errors list.
 
+SPEAKER ATTRIBUTION — CRITICAL:
+- Grade ONLY text inside [AGENT] messages. NEVER attribute anything written in a
+  [CUSTOMER] message to the agent. If a spelling mistake, typo, or a misspelling
+  of the AGENT'S OWN NAME appears in a [CUSTOMER] message, that is the CUSTOMER'S
+  writing — it is NOT an agent error, do not flag it.
+- A customer misspelling the agent's name, or writing poorly, is never an agent
+  QC issue. Only the agent's own words count.
+
 IMPORTANT CONTEXT — this is a COMPLIANCE-style team, not casual chat support:
 - Replies are intentionally FORMAL, LONG, detailed, and process-driven. Long or
   templated replies are NORMAL here and are NOT errors by themselves.
-- [note] parts are internal agent notes, not customer-facing messages.
+- Internal notes are excluded from what you receive; grade only customer-facing replies.
+- Agents use standard professional filler paragraphs (greetings, reassurance,
+  closings, professional-conduct lines) — these are expected conduct and are
+  NEVER errors on their own (not Overutilization, not overemphasis, not padding).
+- Standardised PROTOCOL TEMPLATES (e.g. the Brand Promise eligibility email,
+  add-on/reward notices) are dispatched per established internal protocol with
+  limited room for per-case customisation — do NOT flag them as Overutilization,
+  ChatGPT/automation, or Missing Information.
 
 CATEGORY-SPECIFIC JUDGING RULES (apply strictly to reduce false positives):
 - "Information Overload" / "Overcomplication of Responses": Do NOT flag merely for
@@ -86,10 +101,20 @@ CATEGORY-SPECIFIC JUDGING RULES (apply strictly to reduce false positives):
   options. Only flag when genuinely critical information is omitted.
 - "Inadequate/Excessive Engagement": Do NOT flag when the apparent issue stems
   from an internal note — notes are a needed part of the process.
+- "Error Leading to a Loss of Business": Confirming a refund, or following a
+  standard refund/cancellation workflow, is Business-As-Usual (BAU) — NOT a loss
+  of business. Only flag this when a genuine agent ERROR actually caused lost
+  business. Never treat a normal refund confirmation as an adverse outcome.
+- "Missing Information" / "Missing Minimal Information" (multi-issue cases): When
+  a customer has several concurrent issues but only actively raises one, the
+  agent is NOT required to solve the others in this reply. If the agent notes the
+  other matter is escalated / under review with the relevant team, that is correct
+  proactive communication — do NOT flag it as missing info or irrelevant content.
 - "Spelling Mistakes" / "Typos" / "Context-Altering Spelling Errors" /
-  "Grammatical Mistakes": Read every word CAREFULLY. Only flag a word you are
-  certain is misspelled/mistyped. Do NOT flag correctly-spelled words, proper
-  names, product/brand terms, or regional spellings. When in any doubt, DO NOT flag.
+  "Grammatical Mistakes": Read every word CAREFULLY, and only within [AGENT]
+  messages. Only flag a word you are certain is misspelled/mistyped. Do NOT flag
+  correctly-spelled words, proper names, product/brand terms, or regional
+  spellings. When in any doubt, DO NOT flag.
 
 SCORECARD (severity shown for your judgment; you do not apply the points):`;
 
